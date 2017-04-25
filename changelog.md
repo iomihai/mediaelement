@@ -1,10 +1,12 @@
 ### Version History
 
-*4.??.?? (2017/??/??)*
+*4.0.7 (2017/04/25)*
 
-* Fixed issues with setting media dimensions properly on hidden iframe @rafa8626
+* Fixed issues when using `MediaElement` inside an iframe (cross and non cross-domain) @rafa8626
 * Fixed way to detect fullscreen mode properly for all renderers and fixed fullscreen for iOS @rafa8626
 * Fixed workflow when using `data-mejsoptions` attribute @rafa8626
+* Updated flv.js library (https://github.com/mediaelement/mediaelement/pull/2180) @isantolin
+* Added new section on Documentation to link Code Snippets related to `MediaElement` @rafa8626
 
 *4.0.6 (2017/04/20)*
 

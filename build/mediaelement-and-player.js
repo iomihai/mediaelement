@@ -948,7 +948,7 @@ function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { de
 var mejs = {};
 
 // version number
-mejs.version = '4.0.6';
+mejs.version = '4.0.7';
 
 // Basic HTML5 settings
 mejs.html5media = {
@@ -4829,7 +4829,11 @@ var MediaElementPlayer = function () {
 				while (el) {
 					try {
 						if (_window2.default.self !== _window2.default.top) {
-							return _window2.default.frameElement;
+							if (_window2.default.frameElement !== null) {
+								return _window2.default.frameElement;
+							} else {
+								parentEl = _window2.default.frameElement.parentNode;
+							}
 						} else {
 							parentEl = el.parentElement;
 						}
@@ -4845,7 +4849,7 @@ var MediaElementPlayer = function () {
 
 				return null;
 			}(),
-			    parentStyles = getComputedStyle(parent, null),
+			    parentStyles = parent ? getComputedStyle(parent, null) : getComputedStyle(_document2.default.body, null),
 			    nativeWidth = function () {
 				if (t.isVideo) {
 					if (t.media.videoWidth && t.media.videoWidth > 0) {
@@ -6640,7 +6644,7 @@ var NativeFlv = {
 		} else if (!NativeFlv.isMediaStarted) {
 			(function () {
 
-				settings.options.path = typeof settings.options.path === 'string' ? settings.options.path : '//cdnjs.cloudflare.com/ajax/libs/flv.js/1.1.0/flv.min.js';
+				settings.options.path = typeof settings.options.path === 'string' ? settings.options.path : '//cdnjs.cloudflare.com/ajax/libs/flv.js/1.2.0/flv.min.js';
 
 				var script = _document2.default.createElement('script'),
 				    firstScriptTag = _document2.default.getElementsByTagName('script')[0];
@@ -6696,7 +6700,7 @@ var FlvNativeRenderer = {
 		prefix: 'native_flv',
 		flv: {
 			// Special config: used to set the local path/URL of flv.js library
-			path: '//cdnjs.cloudflare.com/ajax/libs/flv.js/1.1.0/flv.min.js',
+			path: '//cdnjs.cloudflare.com/ajax/libs/flv.js/1.2.0/flv.min.js',
 			// To modify more elements from FLV player,
 			// see https://github.com/Bilibili/flv.js/blob/master/docs/api.md#config
 			cors: true

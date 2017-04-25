@@ -1125,7 +1125,11 @@ class MediaElementPlayer {
 				while (el) {
 					try {
 						if (window.self !== window.top) {
-							return window.frameElement;
+							if (window.frameElement !== null) {
+								return window.frameElement;
+							} else {
+								parentEl = window.frameElement.parentNode;
+							}
 						} else {
 							parentEl = el.parentElement;
 						}
@@ -1142,7 +1146,7 @@ class MediaElementPlayer {
 				return null;
 
 			})(),
-			parentStyles = getComputedStyle(parent, null),
+			parentStyles = parent ? getComputedStyle(parent, null) : getComputedStyle(document.body, null),
 			nativeWidth = (() => {
 				if (t.isVideo) {
 					if (t.media.videoWidth && t.media.videoWidth > 0) {
