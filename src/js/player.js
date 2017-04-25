@@ -300,7 +300,8 @@ class MediaElementPlayer {
 
 		// try to get options from data-mejsoptions
 		if (o === undefined) {
-			o = t.node.getAttribute('data-mejsoptions');
+			const options = t.node.getAttribute('data-mejsoptions');
+			o = options ? JSON.parse(options) : {};
 		}
 
 		// extend default options
@@ -1122,7 +1123,16 @@ class MediaElementPlayer {
 
 				// traverse parents to find the closest visible one
 				while (el) {
-					parentEl = el.parentElement;
+					try {
+						if (window.self !== window.top) {
+							return window.frameElement;
+						} else {
+							parentEl = el.parentElement;
+						}
+					} catch (e) {
+						parentEl = el.parentElement;
+					}
+
 					if (parentEl && dom.visible(parentEl)) {
 						return parentEl;
 					}
@@ -1232,10 +1242,19 @@ class MediaElementPlayer {
 	}
 
 	setFillMode () {
-		const
-			t = this,
-			parent = t.outerContainer
-		;
+		const t = this;
+
+		let parent;
+
+		try {
+			if (window.self !== window.top) {
+				parent = window.frameElement.parentNode;
+			} else {
+				parent = t.outerContainer;
+			}
+		} catch (e) {
+			parent = t.outerContainer;
+		}
 
 		let parentStyles = getComputedStyle(parent);
 
