@@ -1,7 +1,7 @@
 Package.describe({
     name: 'johndyer:mediaelement',
     summary: '*Official* MediaElement.js: <video> and <audio> made easy. One file. Any browser. Same UI.',
-    version: '4.0.7',
+    version: '4.2.3',
     git: 'https://github.com/mediaelement/mediaelement'
 });
 
@@ -14,7 +14,9 @@ Package.onUse(function(api) {
         'build/lang/cs.js',
         'build/lang/de.js',
         'build/lang/es.js',
+        'build/lang/fa.js',
         'build/lang/fr.js',
+        'build/lang/hr.js',
         'build/lang/hu.js',
         'build/lang/it.js',
         'build/lang/ja.js',
@@ -26,6 +28,8 @@ Package.onUse(function(api) {
         'build/lang/ro.js',
         'build/lang/ru.js',
         'build/lang/sk.js',
+        'build/lang/sv.js',
+        'build/lang/uk.js',
         'build/lang/zh.js',
         'build/lang/zh-cn.js',
         'build/renderers/dailymotion.js',
@@ -49,9 +53,7 @@ Package.onUse(function(api) {
     }
 
     api.addFiles([
-        'build/mediaelement.js',
         'build/mediaelement-and-player.js',
-        'build/mediaelementplayer.js',
         'build/mediaelementplayer.css',
         'build/mediaelementplayer-legacy.css'
     ], 'client');

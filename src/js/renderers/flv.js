@@ -1,12 +1,12 @@
 'use strict';
 
 import window from 'global/window';
-import document from 'global/document';
 import mejs from '../core/mejs';
 import {renderer} from '../core/renderer';
 import {createEvent} from '../utils/general';
 import {HAS_MSE} from '../utils/constants';
 import {typeChecks} from '../utils/media';
+import {loadScript} from '../utils/dom';
 
 /**
  * Native FLV renderer
@@ -19,83 +19,31 @@ import {typeChecks} from '../utils/media';
  *
  */
 const NativeFlv = {
-	/**
-	 * @type {Boolean}
-	 */
-	isMediaStarted: false,
-	/**
-	 * @type {Boolean}
-	 */
-	isMediaLoaded: false,
-	/**
-	 * @type {Array}
-	 */
-	creationQueue: [],
+
+	promise: null,
 
 	/**
 	 * Create a queue to prepare the loading of an FLV source
 	 * @param {Object} settings - an object with settings needed to load an FLV player instance
 	 */
-	prepareSettings: (settings) => {
-		if (NativeFlv.isLoaded) {
-			NativeFlv.createInstance(settings);
-		} else {
-			NativeFlv.loadScript(settings);
-			NativeFlv.creationQueue.push(settings);
-		}
-	},
-
-	/**
-	 * Load flv.js script on the header of the document
-	 *
-	 * @param {Object} settings - an object with settings needed to load an FLV player instance
-	 */
-	loadScript: (settings) => {
-
-		// Skip script loading since it is already loaded
+	load: (settings) => {
 		if (typeof flvjs !== 'undefined') {
-			NativeFlv.createInstance(settings);
-		} else if (!NativeFlv.isMediaStarted) {
-
+			NativeFlv.promise = new Promise((resolve) => {
+				resolve();
+			}).then(() => {
+				NativeFlv._createPlayer(settings);
+			});
+		} else {
 			settings.options.path = typeof settings.options.path === 'string' ?
-				settings.options.path : '//cdnjs.cloudflare.com/ajax/libs/flv.js/1.2.0/flv.min.js';
+				settings.options.path : 'https://cdnjs.cloudflare.com/ajax/libs/flv.js/1.3.2/flv.min.js';
 
-			const
-				script = document.createElement('script'),
-				firstScriptTag = document.getElementsByTagName('script')[0]
-			;
-
-			let done = false;
-
-			script.src = settings.options.path;
-
-			// Attach handlers for all browsers
-			script.onload = script.onreadystatechange = function () {
-				if (!done && (!this.readyState || this.readyState === undefined ||
-					this.readyState === 'loaded' || this.readyState === 'complete')) {
-					done = true;
-					NativeFlv.mediaReady();
-					script.onload = script.onreadystatechange = null;
-				}
-			};
-
-			firstScriptTag.parentNode.insertBefore(script, firstScriptTag);
-			NativeFlv.isMediaStarted = true;
+			NativeFlv.promise = NativeFlv.promise || loadScript(settings.options.path);
+			NativeFlv.promise.then(() => {
+				NativeFlv._createPlayer(settings);
+			});
 		}
-	},
 
-	/**
-	 * Process queue of FLV player creation
-	 *
-	 */
-	mediaReady: () => {
-		NativeFlv.isLoaded = true;
-		NativeFlv.isMediaLoaded = true;
-
-		while (NativeFlv.creationQueue.length > 0) {
-			const settings = NativeFlv.creationQueue.pop();
-			NativeFlv.createInstance(settings);
-		}
+		return NativeFlv.promise;
 	},
 
 	/**
@@ -103,23 +51,26 @@ const NativeFlv = {
 	 *
 	 * @param {Object} settings - an object with settings needed to instantiate FLV object
 	 */
-	createInstance: (settings) => {
+	_createPlayer: (settings) => {
+		flvjs.LoggingControl.enableDebug = settings.options.debug;
+		flvjs.LoggingControl.enableVerbose = settings.options.debug;
 		const player = flvjs.createPlayer(settings.options);
 		window[`__ready__${settings.id}`](player);
+		return player;
 	}
 };
 
 const FlvNativeRenderer = {
 	name: 'native_flv',
-
 	options: {
 		prefix: 'native_flv',
 		flv: {
 			// Special config: used to set the local path/URL of flv.js library
-			path: '//cdnjs.cloudflare.com/ajax/libs/flv.js/1.2.0/flv.min.js',
+			path: 'https://cdnjs.cloudflare.com/ajax/libs/flv.js/1.3.2/flv.min.js',
 			// To modify more elements from FLV player,
 			// see https://github.com/Bilibili/flv.js/blob/master/docs/api.md#config
-			cors: true
+			cors: true,
+			debug: false
 		}
 	},
 	/**
@@ -128,7 +79,7 @@ const FlvNativeRenderer = {
 	 * @param {String} type
 	 * @return {Boolean}
 	 */
-	canPlayType: (type) => HAS_MSE && ['video/x-flv', 'video/flv'].includes(type),
+	canPlayType: (type) => HAS_MSE && ['video/x-flv', 'video/flv'].indexOf(type.toLowerCase()) > -1,
 
 	/**
 	 * Create the player instance and add all native events/methods/properties as possible
@@ -155,60 +106,96 @@ const FlvNativeRenderer = {
 
 		const
 			props = mejs.html5media.properties,
+			events = mejs.html5media.events.concat(['click', 'mouseover', 'mouseout']),
+			attachNativeEvents = (e) => {
+				if (e.type !== 'error') {
+					const event = createEvent(e.type, mediaElement);
+					mediaElement.dispatchEvent(event);
+				}
+			},
 			assignGettersSetters = (propName) => {
 				const capName = `${propName.substring(0, 1).toUpperCase()}${propName.substring(1)}`;
 
 				node[`get${capName}`] = () => flvPlayer !== null ? node[propName] : null;
 
 				node[`set${capName}`] = (value) => {
-					if (!mejs.html5media.readOnlyProperties.includes(propName)) {
-						if (flvPlayer !== null) {
-							node[propName] = value;
+					if (mejs.html5media.readOnlyProperties.indexOf(propName) === -1) {
+						if (propName === 'src') {
+							node[propName] = typeof value === 'object' && value.src ? value.src : value;
+							if (flvPlayer !== null) {
+								const flvOptions = {};
+								flvOptions.type = 'flv';
+								flvOptions.url = value;
+								flvOptions.cors = options.flv.cors;
+								flvOptions.debug = options.flv.debug;
+								flvOptions.path = options.flv.path;
 
-							if (propName === 'src') {
-								flvPlayer.unload();
-								flvPlayer.detachMediaElement();
+								flvPlayer.destroy();
+								for (let i = 0, total = events.length; i < total; i++) {
+									node.removeEventListener(events[i], attachNativeEvents);
+								}
+								flvPlayer = NativeFlv._createPlayer({
+									options: flvOptions,
+									id: id
+								});
 								flvPlayer.attachMediaElement(node);
 								flvPlayer.load();
 							}
+						} else {
+							node[propName] = value;
 						}
 					}
 				};
-
 			}
-			;
+		;
 
 		for (let i = 0, total = props.length; i < total; i++) {
 			assignGettersSetters(props[i]);
 		}
 
-		// Initial method to register all FLV events
 		window['__ready__' + id] = (_flvPlayer) => {
-
 			mediaElement.flvPlayer = flvPlayer = _flvPlayer;
 
 			const
-				events = mejs.html5media.events.concat(['click', 'mouseover', 'mouseout']),
+				flvEvents = flvjs.Events,
 				assignEvents = (eventName) => {
-
 					if (eventName === 'loadedmetadata') {
-
 						flvPlayer.unload();
 						flvPlayer.detachMediaElement();
 						flvPlayer.attachMediaElement(node);
 						flvPlayer.load();
 					}
 
-					node.addEventListener(eventName, (e) => {
-						const event = createEvent(e.type, mediaElement);
-						mediaElement.dispatchEvent(event);
-					});
-
+					node.addEventListener(eventName, attachNativeEvents);
 				}
 			;
 
 			for (let i = 0, total = events.length; i < total; i++) {
 				assignEvents(events[i]);
+			}
+
+			/**
+			 * Custom FLV events
+			 *
+			 * These events can be attached to the original node using addEventListener and the name of the event,
+			 * not using flvjs.Events object
+			 * @see http://cdn.dashjs.org/latest/jsdoc/MediaPlayerEvents.html
+			 */
+			const assignFlvEvents = (name, data) => {
+				if (name === 'error') {
+					const message = `${data[0]}: ${data[1]} ${data[2].msg}`;
+					mediaElement.generateError(message, node.src);
+				} else {
+					const event = createEvent(name, mediaElement);
+					event.data = data;
+					mediaElement.dispatchEvent(event);
+				}
+			};
+
+			for (const eventType in flvEvents) {
+				if (flvEvents.hasOwnProperty(eventType)) {
+					flvPlayer.on(flvEvents[eventType], (...args) => assignFlvEvents(flvEvents[eventType], args));
+				}
 			}
 		};
 
@@ -227,16 +214,15 @@ const FlvNativeRenderer = {
 		originalNode.autoplay = false;
 		originalNode.style.display = 'none';
 
-		// Options that cannot be overridden
-		options.flv.type = 'flv';
-		options.flv.url = node.getAttribute('src');
+		// This approach prevents carrying over unnecessary elements from flv.js
+		// in case there are multiple instances of the player
+		const flvOptions = {};
+		flvOptions.type = 'flv';
+		flvOptions.url = node.src;
+		flvOptions.cors = options.flv.cors;
+		flvOptions.debug = options.flv.debug;
+		flvOptions.path = options.flv.path;
 
-		NativeFlv.prepareSettings({
-			options: options.flv,
-			id: id
-		});
-
-		// HELPER METHODS
 		node.setSize = (width, height) => {
 			node.style.width = `${width}px`;
 			node.style.height = `${height}px`;
@@ -265,6 +251,11 @@ const FlvNativeRenderer = {
 		const event = createEvent('rendererready', node);
 		mediaElement.dispatchEvent(event);
 
+		mediaElement.promises.push(NativeFlv.load({
+			options: flvOptions,
+			id: id
+		}));
+
 		return node;
 	}
 };
@@ -273,9 +264,6 @@ const FlvNativeRenderer = {
  * Register Native FLV type based on URL structure
  *
  */
-typeChecks.push((url) => {
-	url = url.toLowerCase();
-	return url.includes('.flv') ? 'video/flv' : null;
-});
+typeChecks.push((url) => ~(url.toLowerCase()).indexOf('.flv') ? 'video/flv' : null);
 
 renderer.add(FlvNativeRenderer);

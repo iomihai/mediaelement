@@ -6,7 +6,7 @@ import window from 'global/window';
 const mejs = {};
 
 // version number
-mejs.version = '4.0.7';
+mejs.version = '4.2.3';
 
 // Basic HTML5 settings
 mejs.html5media = {
@@ -37,16 +37,16 @@ mejs.html5media = {
 	 * @type {String[]}
 	 */
 	events: [
-		'loadstart', 'progress', 'suspend', 'abort', 'error', 'emptied', 'stalled', 'play', 'pause', 'loadedmetadata',
-		'loadeddata', 'waiting', 'playing', 'canplay', 'canplaythrough', 'seeking', 'seeked', 'timeupdate', 'ended',
-		'ratechange', 'durationchange', 'volumechange'
+		'loadstart', 'durationchange', 'loadedmetadata', 'loadeddata', 'progress', 'canplay', 'canplaythrough',
+		'suspend', 'abort', 'error', 'emptied', 'stalled', 'play', 'playing',  'pause', 'waiting', 'seeking',
+		'seeked', 'timeupdate', 'ended', 'ratechange', 'volumechange'
 	],
 	/**
 	 * @type {String[]}
 	 */
 	mediaTypes: [
 		'audio/mp3', 'audio/ogg', 'audio/oga', 'audio/wav', 'audio/x-wav', 'audio/wave', 'audio/x-pn-wav', 'audio/mpeg', 'audio/mp4',
-		'video/mp4', 'video/webm', 'video/ogg'
+		'video/mp4', 'video/webm', 'video/ogg', 'video/ogv'
 	]
 };
 

@@ -8,6 +8,7 @@ import MediaElementPlayer from '../player';
 import * as Features from '../utils/constants';
 import {isString, createEvent} from '../utils/general';
 import {addClass, removeClass} from '../utils/dom';
+import {getTypeFromFile} from '../utils/media';
 
 
 /**
@@ -26,11 +27,14 @@ Object.assign(config, {
 	/**
 	 * @type {?String}
 	 */
-	fullscreenText: null
+	fullscreenText: null,
+	/**
+	 * @type {Boolean}
+	 */
+	useFakeFullscreen: false
 });
 
 Object.assign(MediaElementPlayer.prototype, {
-
 	/**
 	 * @type {Boolean}
 	 */
@@ -66,12 +70,8 @@ Object.assign(MediaElementPlayer.prototype, {
 	 *
 	 * Always has to be prefixed with `build` and the name that will be used in MepDefaults.features list
 	 * @param {MediaElementPlayer} player
-	 * @param {$} controls
-	 * @param {$} layers
-	 * @param {HTMLElement} media
 	 */
 	buildfullscreen (player)  {
-
 		if (!player.isVideo) {
 			return;
 		}
@@ -103,20 +103,20 @@ Object.assign(MediaElementPlayer.prototype, {
 
 		player.fullscreenBtn = fullscreenBtn;
 
-		t.globalBind('keydown', (e) => {
-			let key = e.which || e.keyCode || 0;
+		t.exitFullscreenCallback = (e) => {
+			const key = e.which || e.keyCode || 0;
 			if (key === 27 && ((Features.HAS_TRUE_NATIVE_FULLSCREEN && Features.IS_FULLSCREEN) || t.isFullScreen)) {
 				player.exitFullScreen();
 			}
-		});
+		};
+
+		t.globalBind('keydown', t.exitFullscreenCallback);
 
 		t.normalHeight = 0;
 		t.normalWidth = 0;
 
 		// setup native fullscreen event
 		if (Features.HAS_TRUE_NATIVE_FULLSCREEN) {
-
-			//
 			/**
 			 * Detect any changes on fullscreen
 			 *
@@ -140,7 +140,10 @@ Object.assign(MediaElementPlayer.prototype, {
 
 			player.globalBind(Features.FULLSCREEN_EVENT_NAME, fullscreenChanged);
 		}
-
+	},
+	cleanfullscreen (player)  {
+		player.exitFullScreen();
+		player.globalUnbind('keydown', player.exitFullscreenCallback);
 	},
 
 	/**
@@ -149,10 +152,9 @@ Object.assign(MediaElementPlayer.prototype, {
 	 * @return {String}
 	 */
 	detectFullscreenMode ()  {
-
 		const
 			t = this,
-			isNative = t.media.rendererName !== null && t.media.rendererName.match(/(native|html5)/) !== null
+			isNative = t.media.rendererName !== null && /(native|html5)/i.test(t.media.rendererName)
 		;
 
 		let mode = '';
@@ -163,8 +165,6 @@ Object.assign(MediaElementPlayer.prototype, {
 			mode = 'plugin-native';
 		} else if (t.usePluginFullScreen && Features.SUPPORT_POINTER_EVENTS) {
 			mode = 'plugin-click';
-		} else {
-			mode = 'fullwindow';
 		}
 
 		t.fullscreenMode = mode;
@@ -172,32 +172,21 @@ Object.assign(MediaElementPlayer.prototype, {
 	},
 
 	/**
-	 * Feature destructor.
-	 *
-	 * Always has to be prefixed with `clean` and the name that was used in features list
-	 * @param {MediaElementPlayer} player
-	 */
-	cleanfullscreen (player)  {
-		player.exitFullScreen();
-	},
-
-	/**
 	 *
 	 */
 	enterFullScreen ()  {
-
 		const
 			t = this,
-			isNative = t.media.rendererName !== null && t.media.rendererName.match(/(html5|native)/) !== null,
+			isNative = t.media.rendererName !== null && /(html5|native)/i.test(t.media.rendererName),
 			containerStyles = getComputedStyle(t.container)
 		;
 
-		if (Features.IS_IOS && Features.HAS_IOS_FULLSCREEN) {
-			if (typeof t.media.webkitEnterFullscreen === 'function') {
-				t.media.webkitEnterFullscreen();
-			} else {
-				t.media.originalNode.webkitEnterFullscreen();
-			}
+		// iOS allows playing fullscreen ONLY on `video` tag, so check if the source can go fullscreen on iOS
+		// and if the player can play the current source
+		if (t.options.useFakeFullscreen === false && Features.IS_IOS && Features.HAS_IOS_FULLSCREEN &&
+			typeof t.media.originalNode.webkitEnterFullscreen === 'function' &&
+			t.media.originalNode.canPlayType(getTypeFromFile(t.media.getSrc()))) {
+			t.media.originalNode.webkitEnterFullscreen();
 			return;
 		}
 
@@ -211,7 +200,6 @@ Object.assign(MediaElementPlayer.prototype, {
 
 		// attempt to do true fullscreen
 		if (t.fullscreenMode === 'native-native' || t.fullscreenMode === 'plugin-native') {
-
 			Features.requestFullScreen(t.container);
 
 			if (t.isInIframe) {
@@ -235,13 +223,8 @@ Object.assign(MediaElementPlayer.prototype, {
 							setTimeout(checkFullscreen, 500);
 						}
 					}
-
 				}, 1000);
 			}
-
-		} else if (t.fullscreeMode === 'fullwindow') {
-			// move into position
-
 		}
 
 		// make full size
@@ -260,7 +243,7 @@ Object.assign(MediaElementPlayer.prototype, {
 			t.node.style.width = '100%';
 			t.node.style.height = '100%';
 		} else {
-			const elements = t.container.querySelectorAll('iframe, embed, object, video'), total = elements.length;
+			const elements = t.container.querySelectorAll('embed, object, video'), total = elements.length;
 			for (let i = 0; i < total; i++) {
 				elements[i].style.width = '100%';
 				elements[i].style.height = '100%';
@@ -271,7 +254,7 @@ Object.assign(MediaElementPlayer.prototype, {
 			t.media.setSize(screen.width, screen.height);
 		}
 
-		const layers = t.layers.childNodes, total = layers.length;
+		const layers = t.layers.children, total = layers.length;
 		for (let i = 0; i < total; i++) {
 			layers[i].style.width = '100%';
 			layers[i].style.height = '100%';
@@ -302,10 +285,9 @@ Object.assign(MediaElementPlayer.prototype, {
 	 *
 	 */
 	exitFullScreen ()  {
-
 		const
 			t = this,
-			isNative = t.media.rendererName !== null && t.media.rendererName.match(/(native|html5)/) !== null
+			isNative = t.media.rendererName !== null && /(native|html5)/i.test(t.media.rendererName)
 		;
 
 		// Prevent container from attempting to stretch a second time
@@ -328,7 +310,7 @@ Object.assign(MediaElementPlayer.prototype, {
 				t.node.style.width = `${t.normalWidth}px`;
 				t.node.style.height = `${t.normalHeight}px`;
 			} else {
-				const elements = t.container.querySelectorAll('iframe, embed, object, video'), total = elements.length;
+				const elements = t.container.querySelectorAll('embed, object, video'), total = elements.length;
 				for (let i = 0; i < total; i++) {
 					elements[i].style.width = `${t.normalWidth}px`;
 					elements[i].style.height = `${t.normalHeight}px`;
@@ -339,15 +321,17 @@ Object.assign(MediaElementPlayer.prototype, {
 				t.media.setSize(t.normalWidth, t.normalHeight);
 			}
 
-			const layers = t.layers.childNodes, total = layers.length;
+			const layers = t.layers.children, total = layers.length;
 			for (let i = 0; i < total; i++) {
 				layers[i].style.width = `${t.normalWidth}px`;
 				layers[i].style.height = `${t.normalHeight}px`;
 			}
 		}
 
-		removeClass(t.fullscreenBtn, `${t.options.classPrefix}unfullscreen`);
-		addClass(t.fullscreenBtn, `${t.options.classPrefix}fullscreen`);
+		if (t.fullscreenBtn) {
+			removeClass(t.fullscreenBtn, `${t.options.classPrefix}unfullscreen`);
+			addClass(t.fullscreenBtn, `${t.options.classPrefix}fullscreen`);
+		}
 
 		t.setControlsSize();
 		t.isFullScreen = false;

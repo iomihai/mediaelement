@@ -5,11 +5,12 @@
 * [Code snippets](#gists)
 
 The following resources talk about a variety of topics that users of `MediaElementJS` deal with.
- 
+
 <a id="styles"></a>
 ## Styling player
 
 * [How to Create an Audio Player in jQuery, HTML5 & CSS3](https://designmodo.com/audio-player/)
+* [Simple Trick - Adding a Play Indicator to the Browser Tab](https://www.raymondcamden.com/2014/02/04/Simple-Trick-Adding-a-Play-Indicator-to-the-Browser-Tab)
 
 <a id="tools"></a>
 ## Encoding tips/tools
@@ -21,4 +22,9 @@ The following resources talk about a variety of topics that users of `MediaEleme
 <a id="gists"></a>
 ## Code snippets
 
-* https://gist.github.com/rafa8626/2ce220b30b7e2ef2dc2e277df6a697ce
+* [CSS Tricks: Video Source by Screen Size](https://css-tricks.com/video-source-by-screen-size/)
+* [Mute tab audio on tab unfocus in javascript/html](https://stackoverflow.com/questions/34506133/mute-tab-audio-on-tab-unfocus-in-javascript-html)
+* [MediaElement.js: Skip to next source if previous cannot be played](https://gist.github.com/rafa8626/2ce220b30b7e2ef2dc2e277df6a697ce)
+* [MediaElementPlayer.js: use `AudioContext.decodeAudioData()`](https://gist.github.com/rafa8626/e6afe41dd00742a75c4d25cc387a7d61)
+* [Use of DRM with MediaElement](https://jsfiddle.net/f431r2zq/12/)
+* [MediaElementPlayer.js using Chromecast and dynamic sources](https://jsfiddle.net/Luuwnjfm/18/)

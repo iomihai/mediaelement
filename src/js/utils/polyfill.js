@@ -1,11 +1,12 @@
 'use strict';
 
 import document from 'global/document';
+import Promise from 'promise-polyfill';
 
 /**
  * Polyfill
  *
- * Mimics the missing methods like Object.assign, Array.includes, etc., as a way to avoid including the whole list
+ * Mimics the missing methods like Object.assign, CustomEvent, etc., as a way to avoid including the whole list
  * of polyfills provided by Babel.
  */
 
@@ -31,17 +32,18 @@ import document from 'global/document';
 // Reference: https://developer.mozilla.org/en-US/docs/Web/API/CustomEvent/CustomEvent
 (function () {
 
-	if ( typeof window.CustomEvent === "function" ) return false;
+	if ( typeof window.CustomEvent === 'function' ) {
+		return false;
+	}
 
 	function CustomEvent ( event, params ) {
 		params = params || { bubbles: false, cancelable: false, detail: undefined };
-		var evt = document.createEvent( 'CustomEvent' );
+		const evt = document.createEvent( 'CustomEvent' );
 		evt.initCustomEvent( event, params.bubbles, params.cancelable, params.detail );
 		return evt;
 	}
 
 	CustomEvent.prototype = window.Event.prototype;
-
 	window.CustomEvent = CustomEvent;
 })();
 
@@ -69,73 +71,6 @@ if (typeof Object.assign !== 'function') {
 			}
 		}
 		return to;
-	};
-}
-
-// Array.includes polyfill
-// Reference: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/includes#Polyfill
-if (!Array.prototype.includes) {
-	Object.defineProperty(Array.prototype, 'includes', {
-		value: function(searchElement, fromIndex) {
-
-			// 1. const O be ? ToObject(this value).
-			if (this === null || this === undefined) {
-				throw new TypeError('"this" is null or not defined');
-			}
-
-			const o = Object(this);
-
-			// 2. const len be ? ToLength(? Get(O, "length")).
-			const len = o.length >>> 0;
-
-			// 3. If len is 0, return false.
-			if (len === 0) {
-				return false;
-			}
-
-			// 4. const n be ? ToInteger(fromIndex).
-			//    (If fromIndex is undefined, this step produces the value 0.)
-			const n = fromIndex | 0;
-
-			// 5. If n ≥ 0, then
-			//  a. const k be n.
-			// 6. Else n < 0,
-			//  a. const k be len + n.
-			//  b. If k < 0, const k be 0.
-			let k = Math.max(n >= 0 ? n : len - Math.abs(n), 0);
-
-			// 7. Repeat, while k < len
-			while (k < len) {
-				// a. const elementK be the result of ? Get(O, ! ToString(k)).
-				// b. If SameValueZero(searchElement, elementK) is true, return true.
-				// c. Increase k by 1.
-				// NOTE: === provides the correct "SameValueZero" comparison needed here.
-				if (o[k] === searchElement) {
-					return true;
-				}
-				k++;
-			}
-
-			// 8. Return false
-			return false;
-		}
-	});
-}
-
-// String.includes polyfill
-// Reference: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/includes
-if (!String.prototype.includes) {
-	String.prototype.includes = function(search, start) {
-		'use strict';
-		if (typeof start !== 'number') {
-			start = 0;
-		}
-
-		if (start + search.length > this.length) {
-			return false;
-		} else {
-			return this.indexOf(search, start) !== -1;
-		}
 	};
 }
 
@@ -216,9 +151,35 @@ if (window.Element && !Element.prototype.closest) {
 // Javascript workaround for FF iframe `getComputedStyle` bug
 // Reference: https://stackoverflow.com/questions/32659801/javascript-workaround-for-firefox-iframe-getcomputedstyle-bug/32660009#32660009
 if (/firefox/i.test(navigator.userAgent)) {
-	window.oldGetComputedStyle = window.getComputedStyle;
+	window.mediaElementJsOldGetComputedStyle = window.getComputedStyle;
 	window.getComputedStyle = (el, pseudoEl) => {
-		const t = window.oldGetComputedStyle(el, pseudoEl);
+		const t = window.mediaElementJsOldGetComputedStyle(el, pseudoEl);
 		return (t === null) ? {getPropertyValue: function () {}} : t;
 	}
 }
+
+// Integrate Promise polyfill if not detected
+// Used https://github.com/taylorhakes/promise-polyfill
+if (!window.Promise) {
+	window.Promise = Promise;
+}
+
+// Overwrites native 'children' prototype.
+// Adds Document & DocumentFragment support for IE9 & Safari.
+// Returns array instead of HTMLCollection.
+// Reference: https://developer.mozilla.org/en-US/docs/Web/API/ParentNode/children#Polyfill
+(function(constructor) {
+	if (constructor && constructor.prototype && constructor.prototype.children === null) {
+		Object.defineProperty(constructor.prototype, 'children', {
+			get: function() {
+				let i = 0, node, nodes = this.childNodes, children = [];
+				while ((node = nodes[i++])) {
+					if (node.nodeType === 1) {
+						children.push(node);
+					}
+				}
+				return children;
+			}
+		});
+	}
+})(window.Node || window.Element);

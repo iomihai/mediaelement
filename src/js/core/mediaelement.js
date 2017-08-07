@@ -6,6 +6,7 @@ import mejs from './mejs';
 import {createEvent} from '../utils/general';
 import {getTypeFromFile, formatType, absolutizeUrl} from '../utils/media';
 import {renderer} from './renderer';
+import {IS_IOS} from '../utils/constants';
 
 /**
  * Media Core
@@ -48,19 +49,13 @@ class MediaElement {
 			 * Flag in `<object>` and `<embed>` to determine whether to use local or CDN
 			 * Possible values: 'always' (CDN version) or 'sameDomain' (local files)
 			 */
-			shimScriptAccess: 'sameDomain',
-			/**
-			 * If error happens, set up HTML message
-			 * @type {String}
-			 */
-			customError: ''
+			shimScriptAccess: 'sameDomain'
 		};
 
 		options = Object.assign(t.defaults, options);
 
 		// create our node (note: older versions of iOS don't support Object.defineProperty on DOM nodes)
 		t.mediaElement = document.createElement(options.fakeNodeName);
-		t.mediaElement.options = options;
 
 		let
 			id = idOrNode,
@@ -74,32 +69,112 @@ class MediaElement {
 			id = idOrNode.id;
 		}
 
+		if (t.mediaElement.originalNode === undefined || t.mediaElement.originalNode === null) {
+			return null;
+		}
+
+		t.mediaElement.options = options;
 		id = id || `mejs_${(Math.random().toString().slice(2))}`;
 
-		if (t.mediaElement.originalNode !== undefined && t.mediaElement.originalNode !== null && t.mediaElement.appendChild) {
-			// change id
-			t.mediaElement.originalNode.setAttribute('id', `${id}_from_mejs`);
+		// change id
+		t.mediaElement.originalNode.setAttribute('id', `${id}_from_mejs`);
 
-			// to avoid some issues with Javascript interactions in the plugin, set `preload=none` if not set
-			// only if video/audio tags are detected
-			const tagName = t.mediaElement.originalNode.tagName.toLowerCase();
-			if (['video', 'audio'].includes(tagName) && !t.mediaElement.originalNode.getAttribute('preload')) {
-				t.mediaElement.originalNode.setAttribute('preload', 'none');
+		// to avoid some issues with Javascript interactions in the plugin, set `preload=none` if not set
+		// only if video/audio tags are detected
+		const tagName = t.mediaElement.originalNode.tagName.toLowerCase();
+		if (['video', 'audio'].indexOf(tagName) > -1 && !t.mediaElement.originalNode.getAttribute('preload')) {
+			t.mediaElement.originalNode.setAttribute('preload', 'none');
+		}
+
+		// add next to this one
+		t.mediaElement.originalNode.parentNode.insertBefore(t.mediaElement, t.mediaElement.originalNode);
+
+		// insert this one inside
+		t.mediaElement.appendChild(t.mediaElement.originalNode);
+
+		/**
+		 * Convert a non-SSL URL to BLOB to avoid issues with regular media types playing under a SSL website
+		 * @see https://poodll.com/ios-10-and-html5-video-and-html5-audio-on-https-sites/
+		 * @private
+		 */
+		const processURL = (url, type) => {
+			if (window.location.protocol === 'https:' && url.indexOf('http:') === 0 && IS_IOS && mejs.html5media.mediaTypes.indexOf(type) > -1) {
+				const xhr = new XMLHttpRequest();
+				xhr.onreadystatechange = function () {
+					if (this.readyState === 4 && this.status === 200) {
+						const
+							url = window.URL || window.webkitURL,
+							blobUrl = url.createObjectURL(this.response)
+						;
+						t.mediaElement.originalNode.setAttribute('src', blobUrl);
+						return blobUrl;
+					}
+					return url;
+				};
+				xhr.open('GET', url);
+				xhr.responseType = 'blob';
+				xhr.send();
 			}
 
-			// add next to this one
-			t.mediaElement.originalNode.parentNode.insertBefore(t.mediaElement, t.mediaElement.originalNode);
+			return url;
+		};
 
-			// insert this one inside
-			t.mediaElement.appendChild(t.mediaElement.originalNode);
-		} else {
-			// TODO: where to put the node?
+		let mediaFiles;
+
+		if (sources !== null) {
+			mediaFiles = sources;
+		} else if (t.mediaElement.originalNode !== null) {
+
+			mediaFiles = [];
+
+			switch (t.mediaElement.originalNode.nodeName.toLowerCase()) {
+				case 'iframe':
+					mediaFiles.push({
+						type: '',
+						src: t.mediaElement.originalNode.getAttribute('src')
+					});
+					break;
+				case 'audio':
+				case 'video':
+					const
+						sources = t.mediaElement.originalNode.children.length,
+						nodeSource = t.mediaElement.originalNode.getAttribute('src')
+					;
+
+					// Consider if node contains the `src` and `type` attributes
+					if (nodeSource) {
+						const
+							node = t.mediaElement.originalNode,
+							type = formatType(nodeSource, node.getAttribute('type'))
+						;
+						mediaFiles.push({
+							type: type,
+							src: processURL(nodeSource, type)
+						});
+					}
+
+					// test <source> types to see if they are usable
+					for (let i = 0; i < sources; i++) {
+						const n = t.mediaElement.originalNode.children[i];
+						if (n.tagName.toLowerCase() === 'source') {
+							const
+								src = n.getAttribute('src'),
+								type = formatType(src, n.getAttribute('type'))
+							;
+							mediaFiles.push({type: type, src: processURL(src, type)});
+						}
+					}
+					break;
+			}
 		}
 
 		t.mediaElement.id = id;
 		t.mediaElement.renderers = {};
+		t.mediaElement.events = {};
+		t.mediaElement.promises = [];
 		t.mediaElement.renderer = null;
 		t.mediaElement.rendererName = null;
+
 		/**
 		 * Determine whether the renderer was found or not
 		 *
@@ -110,7 +185,12 @@ class MediaElement {
 		 */
 		t.mediaElement.changeRenderer = (rendererName, mediaFiles) => {
 
-			const t = this;
+			const
+				t = this,
+				// If the first element of `mediaFiles` contain more than `src` and `type`
+				// pass the entire object; otherwise, just `src`
+				media = Object.keys(mediaFiles[0]).length > 2 ? mediaFiles[0] : mediaFiles[0].src
+			;
 
 			// check for a match on the current renderer
 			if (t.mediaElement.renderer !== undefined && t.mediaElement.renderer !== null &&
@@ -120,7 +200,7 @@ class MediaElement {
 					t.mediaElement.renderer.stop();
 				}
 				t.mediaElement.renderer.show();
-				t.mediaElement.renderer.setSrc(mediaFiles[0].src);
+				t.mediaElement.renderer.setSrc(media);
 				return true;
 			}
 
@@ -141,7 +221,7 @@ class MediaElement {
 
 			if (newRenderer !== undefined && newRenderer !== null) {
 				newRenderer.show();
-				newRenderer.setSrc(mediaFiles[0].src);
+				newRenderer.setSrc(media);
 				t.mediaElement.renderer = newRenderer;
 				t.mediaElement.rendererName = rendererName;
 				return true;
@@ -152,12 +232,9 @@ class MediaElement {
 
 			// find the desired renderer in the array of possible ones
 			for (let i = 0, total = rendererArray.length; i < total; i++) {
-
 				const index = rendererArray[i];
 
 				if (index === rendererName) {
-
-					// create the renderer
 					const rendererList = renderer.renderers;
 					newRendererType = rendererList[index];
 
@@ -169,9 +246,7 @@ class MediaElement {
 					t.mediaElement.renderers[newRendererType.name] = newRenderer;
 					t.mediaElement.renderer = newRenderer;
 					t.mediaElement.rendererName = rendererName;
-
 					newRenderer.show();
-
 					return true;
 				}
 			}
@@ -183,8 +258,8 @@ class MediaElement {
 		 * Set the element dimensions based on selected renderer's setSize method
 		 *
 		 * @public
-		 * @param {number} width
-		 * @param {number} height
+		 * @param {Number} width
+		 * @param {Number} height
 		 */
 		t.mediaElement.setSize = (width, height) => {
 			if (t.mediaElement.renderer !== undefined && t.mediaElement.renderer !== null) {
@@ -194,36 +269,17 @@ class MediaElement {
 
 		/**
 		 *
+		 * @public
+		 * @param {String} message
 		 * @param {Object[]} urlList
 		 */
-		t.mediaElement.createErrorMessage = (urlList) => {
-
+		t.mediaElement.generateError = (message, urlList) => {
+			message = message || '';
 			urlList = Array.isArray(urlList) ? urlList : [];
-
-			const errorContainer = document.createElement('div');
-			errorContainer.className = 'me_cannotplay';
-			errorContainer.style.width = '100%';
-			errorContainer.style.height = '100%';
-
-			let errorContent = t.mediaElement.options.customError;
-
-			if (!errorContent) {
-
-				const poster = t.mediaElement.originalNode.getAttribute('poster');
-				if (poster) {
-					errorContent += `<img src="${poster}" width="100%" height="100%" alt="${mejs.i18n.t('mejs.download-file')}">`;
-				}
-
-				for (let i = 0, total = urlList.length; i < total; i++) {
-					const url = urlList[i];
-					errorContent += `<a href="${url.src}" data-type="${url.type}"><span>${mejs.i18n.t('mejs.download-file')}: ${url.src}</span></a>`;
-				}
-			}
-
-			errorContainer.innerHTML = errorContent;
-
-			t.mediaElement.originalNode.parentNode.insertBefore(errorContainer, t.mediaElement.originalNode);
-			t.mediaElement.originalNode.style.display = 'none';
+			const event = createEvent('error', t.mediaElement);
+			event.message = message;
+			event.urls = urlList;
+			t.mediaElement.dispatchEvent(event);
 			error = true;
 		};
 
@@ -251,9 +307,11 @@ class MediaElement {
 
 					const
 						capName = `${propName.substring(0, 1).toUpperCase()}${propName.substring(1)}`,
-						getFn = () => (t.mediaElement.renderer !== undefined && t.mediaElement.renderer !== null) ? t.mediaElement.renderer[`get${capName}`]() : null,
+						getFn = () => (t.mediaElement.renderer !== undefined && t.mediaElement.renderer !== null &&
+							typeof t.mediaElement.renderer[`get${capName}`] === 'function') ? t.mediaElement.renderer[`get${capName}`]() : null,
 						setFn = (value) => {
-							if (t.mediaElement.renderer !== undefined && t.mediaElement.renderer !== null) {
+							if (t.mediaElement.renderer !== undefined && t.mediaElement.renderer !== null &&
+								typeof t.mediaElement.renderer[`set${capName}`] === 'function') {
 								t.mediaElement.renderer[`set${capName}`](value);
 							}
 						};
@@ -264,32 +322,43 @@ class MediaElement {
 				}
 			},
 			// `src` is a property separated from the others since it carries the logic to set the proper renderer
-			// based on the media files detected
+			// based on the media files detected;
+			// `setSrc` can accept a URL string, an object with at least `src` or an Array of objects
 			getSrc = () => (t.mediaElement.renderer !== undefined && t.mediaElement.renderer !== null) ? t.mediaElement.renderer.getSrc() : null,
 			setSrc = (value) => {
-
 				const mediaFiles = [];
 
-				// clean up URLs
 				if (typeof value === 'string') {
 					mediaFiles.push({
 						src: value,
 						type: value ? getTypeFromFile(value) : ''
 					});
-				} else {
+				} else if (typeof value === 'object' && value.src !== undefined) {
+					const
+						src = absolutizeUrl(value.src),
+						type = value.type,
+						media = Object.assign(value, {
+							src: src,
+							type: (type === '' || type === null || type === undefined) && src ?
+								getTypeFromFile(src) : type
+						})
+					;
+					mediaFiles.push(media);
+
+				} else if (Array.isArray(value)) {
 					for (let i = 0, total = value.length; i < total; i++) {
 
 						const
 							src = absolutizeUrl(value[i].src),
-							type = value[i].type
+							type = value[i].type,
+							media = Object.assign(value[i], {
+								src: src,
+								type: (type === '' || type === null || type === undefined) && src ?
+									getTypeFromFile(src) : type
+							})
 						;
 
-						mediaFiles.push({
-							src: src,
-							type: (type === '' || type === null || type === undefined) && src ?
-								getTypeFromFile(src) : type
-						});
-
+						mediaFiles.push(media);
 					}
 				}
 
@@ -306,47 +375,43 @@ class MediaElement {
 					event = createEvent('pause', t.mediaElement);
 					t.mediaElement.dispatchEvent(event);
 				}
+				t.mediaElement.originalNode.src = (mediaFiles[0].src || '');
 
-				t.mediaElement.originalNode.setAttribute('src', (mediaFiles[0].src || ''));
-
-				if (t.mediaElement.querySelector('.me_cannotplay')) {
-					t.mediaElement.querySelector('.me_cannotplay').remove();
-				}
-
-				// did we find a renderer?
-				if (renderInfo === null) {
-					t.mediaElement.createErrorMessage(mediaFiles);
-					event = createEvent('error', t.mediaElement);
-					event.message = 'No renderer found';
-					t.mediaElement.dispatchEvent(event);
+				// At least there must be a media in the `mediaFiles` since the media tag can come up an
+				// empty source for starters
+				if (renderInfo === null && mediaFiles[0].src) {
+					t.mediaElement.generateError('No renderer found', mediaFiles);
 					return;
 				}
 
 				// turn on the renderer (this checks for the existing renderer already)
-				t.mediaElement.changeRenderer(renderInfo.rendererName, mediaFiles);
-
-				if (t.mediaElement.renderer === undefined || t.mediaElement.renderer === null) {
-					event = createEvent('error', t.mediaElement);
-					event.message = 'Error creating renderer';
-					t.mediaElement.dispatchEvent(event);
-					t.mediaElement.createErrorMessage(mediaFiles);
-					return;
+				return mediaFiles[0].src ? t.mediaElement.changeRenderer(renderInfo.rendererName, mediaFiles) : null;
+			},
+			triggerAction = (methodName, args) => {
+				try {
+					setTimeout(() => {
+						t.mediaElement.renderer[methodName](args);
+					}, (methodName === 'play' ? 150 : 0));
+				} catch (e) {
+					t.mediaElement.generateError(e, mediaFiles);
 				}
 			},
 			assignMethods = (methodName) => {
-				// run the method on the current renderer
 				t.mediaElement[methodName] = (...args) => {
 					if (t.mediaElement.renderer !== undefined && t.mediaElement.renderer !== null &&
-					typeof t.mediaElement.renderer[methodName] === 'function') {
-						try {
-							t.mediaElement.renderer[methodName](args)
-						} catch (e) {
-							t.mediaElement.createErrorMessage();
+						typeof t.mediaElement.renderer[methodName] === 'function') {
+						if (t.mediaElement.promises.length) {
+							Promise.all(t.mediaElement.promises).then(() => {
+								triggerAction(methodName, args);
+							}).catch((e) => {
+								t.mediaElement.generateError(e, mediaFiles);
+							});
+						} else {
+							triggerAction(methodName, args);
 						}
 					}
 					return null;
 				};
-
 			};
 
 		// Assign all methods/properties/events to fake node if renderer was found
@@ -361,9 +426,6 @@ class MediaElement {
 		for (let i = 0, total = methods.length; i < total; i++) {
 			assignMethods(methods[i]);
 		}
-
-		// IE && iOS
-		t.mediaElement.events = {};
 
 		// start: fake events
 		t.mediaElement.addEventListener = (eventName, callback) => {
@@ -408,9 +470,7 @@ class MediaElement {
 		 * @param {Event} event
 		 */
 		t.mediaElement.dispatchEvent = (event) => {
-
 			const callbacks = t.mediaElement.events[event.type];
-
 			if (callbacks) {
 				for (let i = 0; i < callbacks.length; i++) {
 					callbacks[i].apply(null, [event]);
@@ -418,66 +478,30 @@ class MediaElement {
 			}
 		};
 
-		let mediaFiles;
-
-		if (sources !== null) {
-			mediaFiles = sources;
-		} else if (t.mediaElement.originalNode !== null) {
-
-			mediaFiles = [];
-
-			switch (t.mediaElement.originalNode.nodeName.toLowerCase()) {
-
-				case 'iframe':
-					mediaFiles.push({
-						type: '',
-						src: t.mediaElement.originalNode.getAttribute('src')
-					});
-
-					break;
-
-				case 'audio':
-				case 'video':
-					const
-						sources = t.mediaElement.originalNode.childNodes.length,
-						nodeSource = t.mediaElement.originalNode.getAttribute('src')
-					;
-
-					// Consider if node contains the `src` and `type` attributes
-					if (nodeSource) {
-						const node = t.mediaElement.originalNode;
-						mediaFiles.push({
-							type: formatType(nodeSource, node.getAttribute('type')),
-							src: nodeSource
-						});
-					}
-
-					// test <source> types to see if they are usable
-					for (let i = 0; i < sources; i++) {
-						const n = t.mediaElement.originalNode.childNodes[i];
-						if (n.nodeType === Node.ELEMENT_NODE && n.tagName.toLowerCase() === 'source') {
-							const
-								src = n.getAttribute('src'),
-								type = formatType(src, n.getAttribute('type'))
-							;
-							mediaFiles.push({type: type, src: src});
-						}
-					}
-					break;
-			}
-		}
-
 		// Set the best match based on renderers
 		if (mediaFiles.length) {
 			t.mediaElement.src = mediaFiles;
 		}
 
-		if (t.mediaElement.options.success) {
-			t.mediaElement.options.success(t.mediaElement, t.mediaElement.originalNode);
-		}
+		if (t.mediaElement.promises.length) {
+			Promise.all(t.mediaElement.promises)
+			.then(() => {
+				if (t.mediaElement.options.success) {
+					t.mediaElement.options.success(t.mediaElement, t.mediaElement.originalNode);
+				}
+			}).catch(() => {
+				if (error && t.mediaElement.options.error) {
+					t.mediaElement.options.error(t.mediaElement, t.mediaElement.originalNode);
+				}
+			});
+		} else {
+			if (t.mediaElement.options.success) {
+				t.mediaElement.options.success(t.mediaElement, t.mediaElement.originalNode);
+			}
 
-		if (error && t.mediaElement.options.error) {
-			t.mediaElement.options.error(t.mediaElement, t.mediaElement.originalNode);
+			if (error && t.mediaElement.options.error) {
+				t.mediaElement.options.error(t.mediaElement, t.mediaElement.originalNode);
+			}
 		}
 
 		return t.mediaElement;
