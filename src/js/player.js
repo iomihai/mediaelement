@@ -885,13 +885,13 @@ class MediaElementPlayer {
 					t.hideControls(false);
 				}
 
-				// resizer
 				if (t.options.enableAutosize) {
 					t.media.addEventListener('loadedmetadata', (e) => {
-						// if the <video height> was not set and the options.videoHeight was not set
-						// then resize to the real dimensions
+						// if the `height` attribute and `height` style and `options.videoHeight`
+						// were not set, resize to the media's real dimensions
 						const target = (e !== undefined) ? (e.detail.target || e.target) : t.media;
 						if (t.options.videoHeight <= 0 && !t.domNode.getAttribute('height') &&
+							!t.domNode.style.height &&
 							target !== null && !isNaN(target.videoHeight)) {
 							t.setPlayerSize(target.videoWidth, target.videoHeight);
 							t.setControlsSize();
@@ -1101,14 +1101,14 @@ class MediaElementPlayer {
 			imgError = ''
 		;
 
-		if (errorContent) {
+		if (!errorContent) {
 			const poster = t.media.originalNode.getAttribute('poster');
 			if (poster) {
 				imgError = `<img src="${poster}" alt="${mejs.i18n.t('mejs.download-file')}">`;
 			}
 
 			if (e.message) {
-				errorContent += `<p>${e.message}</p>`;
+				errorContent = `<p>${e.message}</p>`;
 			}
 
 			if (e.urls) {
@@ -1123,6 +1123,10 @@ class MediaElementPlayer {
 			errorContainer.innerHTML = errorContent;
 			t.layers.querySelector(`.${t.options.classPrefix}overlay-error`).innerHTML = `${imgError}${errorContainer.outerHTML}`;
 			t.layers.querySelector(`.${t.options.classPrefix}overlay-error`).parentNode.style.display = 'block';
+		}
+
+		if (t.controlsEnabled) {
+			t.disableControls();
 		}
 	}
 
@@ -1846,6 +1850,12 @@ class MediaElementPlayer {
 			hasError = true;
 		});
 
+		media.addEventListener('loadedmetadata', () => {
+			if (!t.controlsEnabled) {
+				t.enableControls();
+			}
+		});
+
 		media.addEventListener('keydown', (e) => {
 			t.onkeydown(player, media, e);
 			hasError = false;
@@ -1892,6 +1902,7 @@ class MediaElementPlayer {
 						keyAction.action(player, media, e.keyCode, e);
 						e.preventDefault();
 						e.stopPropagation();
+						return;
 					}
 				}
 			}
@@ -2043,6 +2054,8 @@ class MediaElementPlayer {
 
 		t.node.style.width = nativeWidth;
 		t.node.style.height = nativeHeight;
+		// Call this to avoid further calls to attempt set the player's dimensions
+		t.setPlayerSize(0,0);
 
 		// grab video and put it back in place
 		if (!t.isDynamic) {

@@ -1,6 +1,24 @@
 ### Version History
 
-*4.2.4 (2017/??/??)*
+*X.X.X (??/??/??)*
+
+* Fixed positioning of progress bar tooltip @rafa8626
+* Added style to avoid flickering when using volume on Chrome @rafa8626
+* Fixed broken UUT @rafa8626
+* Added `configs` parameter for native FLV according to documentation for flv.js (https://github.com/mediaelement/mediaelement/pull/2344) @xiaosongxiaosong
+* Added missing call to avoid further calls to attempt set the player's dimensions once removed @rafa8626
+* Fixed typo when checking error event and fixed workflow to loop multiple sources until valid one is found @rafa8626
+* Fixed workflow to enable/disable controls once error occurs and once user recovers from error @rafa8626
+* Fixed issue when no `height` attribute but style is set to create proper player dimensions @rafa8626
+* Use local variable for `getComputedStyle` polyfill to avoid recursion on Firefox (https://github.com/mediaelement/mediaelement/pull/2351) @synthecypher
+* Fixed accessibility issues when using keyboard on focused progress bar @rafa8626
+
+*4.2.5 (2017/08/09)*
+
+* Removed workflow that ignored MIME type to get a better media match @rafa8626
+* Fixed typos related to HLS MIME type and library version @rafa8626
+
+*4.2.4 (2017/08/08)*
 
 * Added missing conditional to set current time properly for live streams (especially YouTube ones) @rafa8626
 * Fixed issues with Flash fallback for FLV and RTMP in regards of setting current time and other events @rafa8626
@@ -16,7 +34,8 @@
 * Added `forceLive` configuration to hide progress bar and display `Live Broadcast` even when `duration` is a valid number @rafa8626
 * Fixed issues with Flash HLS renderer related to restarting video once ended @rafa8626
 * Added missing translations @rafa8626
-* Fixed issue with native methods assigned to MediaElement shim related to `The play() request was interrupted` error @rafa8626
+* Fixed issue with native M(PEG)-DASH assigned to MediaElement shim related to `The play() request was interrupted` error @rafa8626
+* Created workflow to remove/restore `poster` when using FB and iPhone and updated SDK version @rafa8626
 
 *4.2.3 (2017/07/22)*
 

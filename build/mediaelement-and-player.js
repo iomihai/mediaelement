@@ -6,7 +6,6 @@
  * using a variety of technologies (pure JavaScript, Flash, iframe)
  *
  * Copyright 2010-2017, John Dyer (http://j.hn/)
- * Maintained by, Rafael Miranda (rafa8626@gmail.com)
  * License: MIT
  *
  */(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(_dereq_,module,exports){
@@ -864,9 +863,13 @@ var MediaElement = function MediaElement(idOrNode, options, sources) {
 	},
 	    triggerAction = function triggerAction(methodName, args) {
 		try {
-			setTimeout(function () {
+			if (methodName === 'play' && t.mediaElement.rendererName === 'native_dash') {
+				setTimeout(function () {
+					t.mediaElement.renderer[methodName](args);
+				}, 150);
+			} else {
 				t.mediaElement.renderer[methodName](args);
-			}, methodName === 'play' ? 150 : 0);
+			}
 		} catch (e) {
 			t.mediaElement.generateError(e, mediaFiles);
 		}
@@ -990,7 +993,7 @@ function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { de
 
 var mejs = {};
 
-mejs.version = '4.2.3';
+mejs.version = '4.2.5';
 
 mejs.html5media = {
 	properties: ['volume', 'src', 'currentTime', 'muted', 'duration', 'paused', 'ended', 'buffered', 'error', 'networkState', 'readyState', 'seeking', 'seekable', 'currentSrc', 'preload', 'bufferedBytes', 'bufferedTime', 'initialTime', 'startOffsetTime', 'defaultPlaybackRate', 'playbackRate', 'played', 'autoplay', 'loop', 'controls'],
@@ -1642,10 +1645,12 @@ Object.assign(_player2.default.prototype, {
 						}
 					}
 
-					var half = t.timefloat.offsetWidth / 2;
-					if (x <= t.timefloat.offsetWidth + half) {
+					var half = t.timefloat.offsetWidth / 2,
+					    offsetContainer = mejs.Utils.offset(t.container);
+
+					if (x - offsetContainer.left < t.timefloat.offsetWidth) {
 						leftPos = half;
-					} else if (x >= t.container.offsetWidth - half) {
+					} else if (x - offsetContainer.left >= t.container.offsetWidth - half) {
 						leftPos = t.total.offsetWidth - half;
 					} else {
 						leftPos = pos;
@@ -1722,16 +1727,35 @@ Object.assign(_player2.default.prototype, {
 				    seekBackward = player.options.defaultSeekBackwardInterval(media);
 
 				var seekTime = t.getCurrentTime();
+				var volume = t.container.querySelector('.' + t.options.classPrefix + 'volume-slider');
+
+				if (keyCode === 38 || keyCode === 40) {
+					if (volume) {
+						volume.style.display = 'block';
+					}
+					if (t.isVideo) {
+						t.showControls();
+						t.startControlsTimer();
+					}
+
+					var newVolume = keyCode === 38 ? Math.min(t.volume + 0.1, 1) : Math.max(t.volume - 0.1, 0),
+					    mutePlayer = newVolume <= 0;
+					t.setVolume(newVolume);
+					t.setMuted(mutePlayer);
+					return;
+				} else {
+					if (volume) {
+						volume.style.display = 'none';
+					}
+				}
 
 				switch (keyCode) {
 					case 37:
-					case 40:
 						if (t.getDuration() !== Infinity) {
 							seekTime -= seekBackward;
 						}
 						break;
 					case 39:
-					case 38:
 						if (t.getDuration() !== Infinity) {
 							seekTime += seekForward;
 						}
@@ -1742,20 +1766,14 @@ Object.assign(_player2.default.prototype, {
 					case 35:
 						seekTime = duration;
 						break;
+					case 13:
 					case 32:
-						if (!_constants.IS_FIREFOX) {
+						if (_constants.IS_FIREFOX) {
 							if (t.paused) {
 								t.play();
 							} else {
 								t.pause();
 							}
-						}
-						return;
-					case 13:
-						if (t.paused) {
-							t.play();
-						} else {
-							t.pause();
 						}
 						return;
 					default:
@@ -4001,7 +4019,7 @@ var MediaElementPlayer = function () {
 					if (t.options.enableAutosize) {
 						t.media.addEventListener('loadedmetadata', function (e) {
 							var target = e !== undefined ? e.detail.target || e.target : t.media;
-							if (t.options.videoHeight <= 0 && !t.domNode.getAttribute('height') && target !== null && !isNaN(target.videoHeight)) {
+							if (t.options.videoHeight <= 0 && !t.domNode.getAttribute('height') && !t.domNode.style.height && target !== null && !isNaN(target.videoHeight)) {
 								t.setPlayerSize(target.videoWidth, target.videoHeight);
 								t.setControlsSize();
 								t.media.setSize(target.videoWidth, target.videoHeight);
@@ -4179,14 +4197,14 @@ var MediaElementPlayer = function () {
 			var errorContent = typeof t.options.customError === 'function' ? t.options.customError(t.media, t.media.originalNode) : t.options.customError,
 			    imgError = '';
 
-			if (errorContent) {
+			if (!errorContent) {
 				var poster = t.media.originalNode.getAttribute('poster');
 				if (poster) {
 					imgError = '<img src="' + poster + '" alt="' + _mejs2.default.i18n.t('mejs.download-file') + '">';
 				}
 
 				if (e.message) {
-					errorContent += '<p>' + e.message + '</p>';
+					errorContent = '<p>' + e.message + '</p>';
 				}
 
 				if (e.urls) {
@@ -4201,6 +4219,10 @@ var MediaElementPlayer = function () {
 				errorContainer.innerHTML = errorContent;
 				t.layers.querySelector('.' + t.options.classPrefix + 'overlay-error').innerHTML = '' + imgError + errorContainer.outerHTML;
 				t.layers.querySelector('.' + t.options.classPrefix + 'overlay-error').parentNode.style.display = 'block';
+			}
+
+			if (t.controlsEnabled) {
+				t.disableControls();
 			}
 		}
 	}, {
@@ -4868,6 +4890,12 @@ var MediaElementPlayer = function () {
 				hasError = true;
 			});
 
+			media.addEventListener('loadedmetadata', function () {
+				if (!t.controlsEnabled) {
+					t.enableControls();
+				}
+			});
+
 			media.addEventListener('keydown', function (e) {
 				t.onkeydown(player, media, e);
 				hasError = false;
@@ -4911,6 +4939,7 @@ var MediaElementPlayer = function () {
 							keyAction.action(player, media, e.keyCode, e);
 							e.preventDefault();
 							e.stopPropagation();
+							return;
 						}
 					}
 				}
@@ -5020,6 +5049,8 @@ var MediaElementPlayer = function () {
 
 			t.node.style.width = nativeWidth;
 			t.node.style.height = nativeHeight;
+
+			t.setPlayerSize(0, 0);
 
 			if (!t.isDynamic) {
 				(function () {
@@ -6002,7 +6033,7 @@ if (hasFlash) {
 		},
 
 		canPlayType: function canPlayType(type) {
-			return ~['application/x-mpegurl', 'vnd.apple.mpegurl', 'audio/mpegurl', 'audio/hls', 'video/hls'].indexOf(type.toLowerCase());
+			return ~['application/x-mpegurl', 'application/vnd.apple.mpegurl', 'audio/mpegurl', 'audio/hls', 'video/hls'].indexOf(type.toLowerCase());
 		},
 
 		create: FlashMediaElementRenderer.create
@@ -6106,7 +6137,7 @@ var NativeFlv = {
 	_createPlayer: function _createPlayer(settings) {
 		flvjs.LoggingControl.enableDebug = settings.options.debug;
 		flvjs.LoggingControl.enableVerbose = settings.options.debug;
-		var player = flvjs.createPlayer(settings.options);
+		var player = flvjs.createPlayer(settings.options, settings.configs);
 		_window2.default['__ready__' + settings.id](player);
 		return player;
 	}
@@ -6165,6 +6196,7 @@ var FlvNativeRenderer = {
 							_flvOptions.cors = options.flv.cors;
 							_flvOptions.debug = options.flv.debug;
 							_flvOptions.path = options.flv.path;
+							var _flvConfigs = options.flv.configs;
 
 							flvPlayer.destroy();
 							for (var i = 0, total = events.length; i < total; i++) {
@@ -6172,6 +6204,7 @@ var FlvNativeRenderer = {
 							}
 							flvPlayer = NativeFlv._createPlayer({
 								options: _flvOptions,
+								configs: _flvConfigs,
 								id: id
 							});
 							flvPlayer.attachMediaElement(node);
@@ -6256,6 +6289,7 @@ var FlvNativeRenderer = {
 		flvOptions.cors = options.flv.cors;
 		flvOptions.debug = options.flv.debug;
 		flvOptions.path = options.flv.path;
+		var flvConfigs = options.flv.configs;
 
 		node.setSize = function (width, height) {
 			node.style.width = width + 'px';
@@ -6287,6 +6321,7 @@ var FlvNativeRenderer = {
 
 		mediaElement.promises.push(NativeFlv.load({
 			options: flvOptions,
+			configs: flvConfigs,
 			id: id
 		}));
 
@@ -6360,7 +6395,7 @@ var HlsNativeRenderer = {
 	options: {
 		prefix: 'native_hls',
 		hls: {
-			path: 'https://cdnjs.cloudflare.com/ajax/libs/hls.js/0.7.10/hls.min.js',
+			path: 'https://cdnjs.cloudflare.com/ajax/libs/hls.js/0.7.11/hls.min.js',
 
 			autoStartLoad: false,
 			debug: false
@@ -6368,7 +6403,7 @@ var HlsNativeRenderer = {
 	},
 
 	canPlayType: function canPlayType(type) {
-		return _constants.HAS_MSE && ['application/x-mpegurl', 'vnd.apple.mpegurl', 'audio/mpegurl', 'audio/hls', 'video/hls'].indexOf(type.toLowerCase()) > -1;
+		return _constants.HAS_MSE && ['application/x-mpegurl', 'application/vnd.apple.mpegurl', 'audio/mpegurl', 'audio/hls', 'video/hls'].indexOf(type.toLowerCase()) > -1;
 	},
 
 	create: function create(mediaElement, options, mediaFiles) {
@@ -6646,19 +6681,19 @@ var HtmlMediaElement = {
 			};
 		};
 
-		for (var i = 0, total = props.length; i < total; i++) {
+		for (var i = 0, _total = props.length; i < _total; i++) {
 			assignGettersSetters(props[i]);
 		}
 
 		var events = _mejs2.default.html5media.events.concat(['click', 'mouseover', 'mouseout']),
 		    assignEvents = function assignEvents(eventName) {
 			node.addEventListener(eventName, function (e) {
-				var event = (0, _general.createEvent)(e.type, mediaElement);
+				var event = (0, _general.createEvent)(e.type, e.target);
 				mediaElement.dispatchEvent(event);
 			});
 		};
 
-		for (var _i = 0, _total = events.length; _i < _total; _i++) {
+		for (var _i = 0, _total2 = events.length; _i < _total2; _i++) {
 			assignEvents(events[_i]);
 		}
 
@@ -6680,14 +6715,28 @@ var HtmlMediaElement = {
 			return node;
 		};
 
+		var index = 0,
+		    total = mediaFiles.length;
 		if (mediaFiles && mediaFiles.length > 0) {
-			for (var _i2 = 0, _total2 = mediaFiles.length; _i2 < _total2; _i2++) {
-				if (_renderer.renderer.renderers[options.prefix].canPlayType(mediaFiles[_i2].type)) {
-					node.setAttribute('src', mediaFiles[_i2].src);
+			for (; index < total; index++) {
+				if (_renderer.renderer.renderers[options.prefix].canPlayType(mediaFiles[index].type)) {
+					node.setAttribute('src', mediaFiles[index].src);
 					break;
 				}
 			}
 		}
+
+		node.addEventListener('error', function (e) {
+			if (e.target.error.code === 4) {
+				if (index < total) {
+					node.src = mediaFiles[index++].src;
+					node.load();
+					node.play();
+				} else {
+					mediaElement.generateError('Media error: Format(s) not supported or source(s) not found', mediaFiles);
+				}
+			}
+		});
 
 		var event = (0, _general.createEvent)('rendererready', node);
 		mediaElement.dispatchEvent(event);
@@ -7776,7 +7825,7 @@ function absolutizeUrl(url) {
 function formatType(url) {
 	var type = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : '';
 
-	return url && !type ? getTypeFromFile(url) : getMimeFromType(type);
+	return url && !type ? getTypeFromFile(url) : type;
 }
 
 function getMimeFromType(type) {
@@ -7984,9 +8033,9 @@ if (window.Element && !Element.prototype.closest) {
 })();
 
 if (/firefox/i.test(navigator.userAgent)) {
-	window.mediaElementJsOldGetComputedStyle = window.getComputedStyle;
+	var getComputedStyle = window.getComputedStyle;
 	window.getComputedStyle = function (el, pseudoEl) {
-		var t = window.mediaElementJsOldGetComputedStyle(el, pseudoEl);
+		var t = getComputedStyle(el, pseudoEl);
 		return t === null ? { getPropertyValue: function getPropertyValue() {} } : t;
 	};
 }

@@ -6,7 +6,6 @@
  * using a variety of technologies (pure JavaScript, Flash, iframe)
  *
  * Copyright 2010-2017, John Dyer (http://j.hn/)
- * Maintained by, Rafael Miranda (rafa8626@gmail.com)
  * License: MIT
  *
  */(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(_dereq_,module,exports){
@@ -864,9 +863,13 @@ var MediaElement = function MediaElement(idOrNode, options, sources) {
 	},
 	    triggerAction = function triggerAction(methodName, args) {
 		try {
-			setTimeout(function () {
+			if (methodName === 'play' && t.mediaElement.rendererName === 'native_dash') {
+				setTimeout(function () {
+					t.mediaElement.renderer[methodName](args);
+				}, 150);
+			} else {
 				t.mediaElement.renderer[methodName](args);
-			}, methodName === 'play' ? 150 : 0);
+			}
 		} catch (e) {
 			t.mediaElement.generateError(e, mediaFiles);
 		}
@@ -990,7 +993,7 @@ function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { de
 
 var mejs = {};
 
-mejs.version = '4.2.3';
+mejs.version = '4.2.5';
 
 mejs.html5media = {
 	properties: ['volume', 'src', 'currentTime', 'muted', 'duration', 'paused', 'ended', 'buffered', 'error', 'networkState', 'readyState', 'seeking', 'seekable', 'currentSrc', 'preload', 'bufferedBytes', 'bufferedTime', 'initialTime', 'startOffsetTime', 'defaultPlaybackRate', 'playbackRate', 'played', 'autoplay', 'loop', 'controls'],
@@ -1830,7 +1833,7 @@ if (hasFlash) {
 		},
 
 		canPlayType: function canPlayType(type) {
-			return ~['application/x-mpegurl', 'vnd.apple.mpegurl', 'audio/mpegurl', 'audio/hls', 'video/hls'].indexOf(type.toLowerCase());
+			return ~['application/x-mpegurl', 'application/vnd.apple.mpegurl', 'audio/mpegurl', 'audio/hls', 'video/hls'].indexOf(type.toLowerCase());
 		},
 
 		create: FlashMediaElementRenderer.create
@@ -1934,7 +1937,7 @@ var NativeFlv = {
 	_createPlayer: function _createPlayer(settings) {
 		flvjs.LoggingControl.enableDebug = settings.options.debug;
 		flvjs.LoggingControl.enableVerbose = settings.options.debug;
-		var player = flvjs.createPlayer(settings.options);
+		var player = flvjs.createPlayer(settings.options, settings.configs);
 		_window2.default['__ready__' + settings.id](player);
 		return player;
 	}
@@ -1993,6 +1996,7 @@ var FlvNativeRenderer = {
 							_flvOptions.cors = options.flv.cors;
 							_flvOptions.debug = options.flv.debug;
 							_flvOptions.path = options.flv.path;
+							var _flvConfigs = options.flv.configs;
 
 							flvPlayer.destroy();
 							for (var i = 0, total = events.length; i < total; i++) {
@@ -2000,6 +2004,7 @@ var FlvNativeRenderer = {
 							}
 							flvPlayer = NativeFlv._createPlayer({
 								options: _flvOptions,
+								configs: _flvConfigs,
 								id: id
 							});
 							flvPlayer.attachMediaElement(node);
@@ -2084,6 +2089,7 @@ var FlvNativeRenderer = {
 		flvOptions.cors = options.flv.cors;
 		flvOptions.debug = options.flv.debug;
 		flvOptions.path = options.flv.path;
+		var flvConfigs = options.flv.configs;
 
 		node.setSize = function (width, height) {
 			node.style.width = width + 'px';
@@ -2115,6 +2121,7 @@ var FlvNativeRenderer = {
 
 		mediaElement.promises.push(NativeFlv.load({
 			options: flvOptions,
+			configs: flvConfigs,
 			id: id
 		}));
 
@@ -2188,7 +2195,7 @@ var HlsNativeRenderer = {
 	options: {
 		prefix: 'native_hls',
 		hls: {
-			path: 'https://cdnjs.cloudflare.com/ajax/libs/hls.js/0.7.10/hls.min.js',
+			path: 'https://cdnjs.cloudflare.com/ajax/libs/hls.js/0.7.11/hls.min.js',
 
 			autoStartLoad: false,
 			debug: false
@@ -2196,7 +2203,7 @@ var HlsNativeRenderer = {
 	},
 
 	canPlayType: function canPlayType(type) {
-		return _constants.HAS_MSE && ['application/x-mpegurl', 'vnd.apple.mpegurl', 'audio/mpegurl', 'audio/hls', 'video/hls'].indexOf(type.toLowerCase()) > -1;
+		return _constants.HAS_MSE && ['application/x-mpegurl', 'application/vnd.apple.mpegurl', 'audio/mpegurl', 'audio/hls', 'video/hls'].indexOf(type.toLowerCase()) > -1;
 	},
 
 	create: function create(mediaElement, options, mediaFiles) {
@@ -2474,19 +2481,19 @@ var HtmlMediaElement = {
 			};
 		};
 
-		for (var i = 0, total = props.length; i < total; i++) {
+		for (var i = 0, _total = props.length; i < _total; i++) {
 			assignGettersSetters(props[i]);
 		}
 
 		var events = _mejs2.default.html5media.events.concat(['click', 'mouseover', 'mouseout']),
 		    assignEvents = function assignEvents(eventName) {
 			node.addEventListener(eventName, function (e) {
-				var event = (0, _general.createEvent)(e.type, mediaElement);
+				var event = (0, _general.createEvent)(e.type, e.target);
 				mediaElement.dispatchEvent(event);
 			});
 		};
 
-		for (var _i = 0, _total = events.length; _i < _total; _i++) {
+		for (var _i = 0, _total2 = events.length; _i < _total2; _i++) {
 			assignEvents(events[_i]);
 		}
 
@@ -2508,14 +2515,28 @@ var HtmlMediaElement = {
 			return node;
 		};
 
+		var index = 0,
+		    total = mediaFiles.length;
 		if (mediaFiles && mediaFiles.length > 0) {
-			for (var _i2 = 0, _total2 = mediaFiles.length; _i2 < _total2; _i2++) {
-				if (_renderer.renderer.renderers[options.prefix].canPlayType(mediaFiles[_i2].type)) {
-					node.setAttribute('src', mediaFiles[_i2].src);
+			for (; index < total; index++) {
+				if (_renderer.renderer.renderers[options.prefix].canPlayType(mediaFiles[index].type)) {
+					node.setAttribute('src', mediaFiles[index].src);
 					break;
 				}
 			}
 		}
+
+		node.addEventListener('error', function (e) {
+			if (e.target.error.code === 4) {
+				if (index < total) {
+					node.src = mediaFiles[index++].src;
+					node.load();
+					node.play();
+				} else {
+					mediaElement.generateError('Media error: Format(s) not supported or source(s) not found', mediaFiles);
+				}
+			}
+		});
 
 		var event = (0, _general.createEvent)('rendererready', node);
 		mediaElement.dispatchEvent(event);
@@ -3604,7 +3625,7 @@ function absolutizeUrl(url) {
 function formatType(url) {
 	var type = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : '';
 
-	return url && !type ? getTypeFromFile(url) : getMimeFromType(type);
+	return url && !type ? getTypeFromFile(url) : type;
 }
 
 function getMimeFromType(type) {
@@ -3812,9 +3833,9 @@ if (window.Element && !Element.prototype.closest) {
 })();
 
 if (/firefox/i.test(navigator.userAgent)) {
-	window.mediaElementJsOldGetComputedStyle = window.getComputedStyle;
+	var getComputedStyle = window.getComputedStyle;
 	window.getComputedStyle = function (el, pseudoEl) {
-		var t = window.mediaElementJsOldGetComputedStyle(el, pseudoEl);
+		var t = getComputedStyle(el, pseudoEl);
 		return t === null ? { getPropertyValue: function getPropertyValue() {} } : t;
 	};
 }

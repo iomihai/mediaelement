@@ -187,10 +187,14 @@ Object.assign(MediaElementPlayer.prototype, {
 						}
 
 						// Add correct position of tooltip if rail is 100%
-						const half = t.timefloat.offsetWidth / 2;
-						if (x <= t.timefloat.offsetWidth + half) {
+						const
+							half = t.timefloat.offsetWidth / 2,
+							offsetContainer = mejs.Utils.offset(t.container)
+						;
+
+						if ((x - offsetContainer.left) < t.timefloat.offsetWidth) {
 							leftPos = half;
-						} else if (x >= t.container.offsetWidth- half) {
+						} else if ((x - offsetContainer.left) >= t.container.offsetWidth - half) {
 							leftPos = t.total.offsetWidth - half;
 						} else {
 							leftPos = pos;
@@ -283,16 +287,37 @@ Object.assign(MediaElementPlayer.prototype, {
 				;
 
 				let seekTime = t.getCurrentTime();
+				const volume = t.container.querySelector(`.${t.options.classPrefix }volume-slider`);
+
+				if (keyCode === 38 || keyCode === 40) {
+					if (volume) {
+						volume.style.display = 'block';
+					}
+					if (t.isVideo) {
+						t.showControls();
+						t.startControlsTimer();
+					}
+
+					const
+						newVolume = keyCode === 38 ? Math.min(t.volume + 0.1, 1) : Math.max(t.volume - 0.1, 0),
+						mutePlayer = newVolume <= 0
+					;
+					t.setVolume(newVolume);
+					t.setMuted(mutePlayer);
+					return;
+				} else {
+					if (volume) {
+						volume.style.display = 'none';
+					}
+				}
 
 				switch (keyCode) {
 					case 37: // left
-					case 40: // Down
 						if (t.getDuration() !== Infinity) {
 							seekTime -= seekBackward;
 						}
 						break;
 					case 39: // Right
-					case 38: // Up
 						if (t.getDuration() !== Infinity) {
 							seekTime += seekForward;
 						}
@@ -303,20 +328,14 @@ Object.assign(MediaElementPlayer.prototype, {
 					case 35: // end
 						seekTime = duration;
 						break;
+					case 13: // enter
 					case 32: // space
-						if (!IS_FIREFOX) {
+						if (IS_FIREFOX) {
 							if (t.paused) {
 								t.play();
 							} else {
 								t.pause();
 							}
-						}
-						return;
-					case 13: // enter
-						if (t.paused) {
-							t.play();
-						} else {
-							t.pause();
 						}
 						return;
 					default:

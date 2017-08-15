@@ -11,9 +11,9 @@ const FacebookRenderer = {
 	options: {
 		prefix: 'facebook',
 		facebook: {
-			appId: '{your-app-id}',
+			appId: '',
 			xfbml: true,
-			version: 'v2.9'
+			version: 'v2.10'
 		}
 	},
 
@@ -44,6 +44,7 @@ const FacebookRenderer = {
 		;
 
 		let
+			poster = '',
 			src = '',
 			paused = true,
 			ended = false,
@@ -51,6 +52,11 @@ const FacebookRenderer = {
 			fbApi = null,
 			fbDiv = null
 		;
+
+		if (mejs.Features.isiPhone && mediaElement.originalNode.getAttribute('poster')) {
+			poster = mediaElement.originalNode.getAttribute('poster');
+			mediaElement.originalNode.removeAttribute('poster');
+		}
 
 		options = Object.assign(options, mediaElement.options);
 		fbWrapper.options = options;
@@ -363,13 +369,16 @@ const FacebookRenderer = {
 				fbDiv.style.display = '';
 			}
 		};
-		fbWrapper.setSize = (width, height) => {
-			if (fbApi !== null && !isNaN(width) && !isNaN(height)) {
+		fbWrapper.setSize = (width) => {
+			if (fbApi !== null && !isNaN(width)) {
 				fbDiv.style.width = width;
-				fbDiv.style.height = height;
 			}
 		};
-		fbWrapper.destroy = () => {};
+		fbWrapper.destroy = () => {
+			if (poster) {
+				mediaElement.originalNode.setAttribute('poster', poster);
+			}
+		};
 
 		fbWrapper.interval = null;
 

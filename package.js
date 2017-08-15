@@ -1,7 +1,7 @@
 Package.describe({
     name: 'johndyer:mediaelement',
     summary: '*Official* MediaElement.js: <video> and <audio> made easy. One file. Any browser. Same UI.',
-    version: '4.2.3',
+    version: '4.2.5',
     git: 'https://github.com/mediaelement/mediaelement'
 });
 
@@ -24,7 +24,6 @@ Package.onUse(function(api) {
         'build/lang/nl.js',
         'build/lang/pl.js',
         'build/lang/pt.js',
-        'build/lang/pt-br.js',
         'build/lang/ro.js',
         'build/lang/ru.js',
         'build/lang/sk.js',
