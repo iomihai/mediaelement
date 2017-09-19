@@ -6,7 +6,7 @@ import mejs from '../core/mejs';
 import i18n from '../core/i18n';
 import {renderer} from '../core/renderer';
 import {createEvent} from '../utils/general';
-import {NAV, IS_IE} from '../utils/constants';
+import {NAV, IS_IE, IS_EDGE} from '../utils/constants';
 import {typeChecks, absolutizeUrl} from '../utils/media';
 
 /**
@@ -81,7 +81,7 @@ export const PluginDetector = {
 					version[i] = parseInt(version[i].match(/\d+/), 10);
 				}
 			}
-		// Internet Explorer / ActiveX
+			// Internet Explorer / ActiveX
 		} else if (window.ActiveXObject !== undefined) {
 			try {
 				ax = new ActiveXObject(activeX);
@@ -128,6 +128,7 @@ const FlashMediaElementRenderer = {
 	create: (mediaElement, options, mediaFiles) => {
 
 		const flash = {};
+		let isActive = false;
 
 		flash.options = options;
 		flash.id = mediaElement.id + '_' + flash.options.prefix;
@@ -202,30 +203,32 @@ const FlashMediaElementRenderer = {
 			methods = mejs.html5media.methods,
 			assignMethods = (methodName) => {
 				flash[methodName] = () => {
-					if (flash.flashApi !== null) {
+					if (isActive) {
+						if (flash.flashApi !== null) {
 
-						// send call up to Flash ExternalInterface API
-						if (flash.flashApi[`fire_${methodName}`]) {
-							try {
-								flash.flashApi[`fire_${methodName}`]();
-							} catch (e) {
-								console.log(e);
+							// send call up to Flash ExternalInterface API
+							if (flash.flashApi[`fire_${methodName}`]) {
+								try {
+									flash.flashApi[`fire_${methodName}`]();
+								} catch (e) {
+									console.log(e);
+								}
+
+							} else {
+								console.log('flash', 'missing method', methodName);
 							}
-
 						} else {
-							console.log('flash', 'missing method', methodName);
+							// store for after "READY" event fires
+							flash.flashApiStack.push({
+								type: 'call',
+								methodName: methodName
+							});
 						}
-					} else {
-						// store for after "READY" event fires
-						flash.flashApiStack.push({
-							type: 'call',
-							methodName: methodName
-						});
 					}
 				};
 
 			}
-			;
+		;
 		methods.push('stop');
 		for (let i = 0, total = methods.length; i < total; i++) {
 			assignMethods(methods[i]);
@@ -313,17 +316,28 @@ const FlashMediaElementRenderer = {
 
 		let settings = [];
 
-		if (IS_IE) {
+		if (IS_IE || IS_EDGE) {
 			const specialIEContainer = document.createElement('div');
 			flash.flashWrapper.appendChild(specialIEContainer);
 
-			settings = [
-				'classid="clsid:D27CDB6E-AE6D-11cf-96B8-444553540000"',
-				'codebase="//download.macromedia.com/pub/shockwave/cabs/flash/swflash.cab"',
-				`id="__${flash.id }"`,
-				`width="${flashWidth}"`,
-				`height="${flashHeight}"`
-			];
+			if (IS_EDGE) {
+				settings = [
+					'type="application/x-shockwave-flash"',
+					`data="${flash.options.pluginPath}${flash.options.filename}"`,
+					`id="__${flash.id}"`,
+					`width="${flashWidth}"`,
+					`height="${flashHeight}'"`
+				];
+			}
+			else {
+				settings = [
+					'classid="clsid:D27CDB6E-AE6D-11cf-96B8-444553540000"',
+					'codebase="//download.macromedia.com/pub/shockwave/cabs/flash/swflash.cab"',
+					`id="__${flash.id}"`,
+					`width="${flashWidth}"`,
+					`height="${flashHeight}"`
+				];
+			}
 
 			if (!isVideo) {
 				settings.push('style="clip: rect(0 0 0 0); position: absolute;"');
@@ -338,7 +352,7 @@ const FlashMediaElementRenderer = {
 				`<param name="allowScriptAccess" value="${flash.options.shimScriptAccess}" />` +
 				`<param name="allowFullScreen" value="true" />` +
 				`<div>${i18n.t('mejs.install-flash')}</div>` +
-			`</object>`;
+				`</object>`;
 
 		} else {
 
@@ -355,13 +369,16 @@ const FlashMediaElementRenderer = {
 				'type="application/x-shockwave-flash"',
 				'pluginspage="//www.macromedia.com/go/getflashplayer"',
 				`src="${flash.options.pluginPath}${flash.options.filename}"`,
-				`flashvars="${flashVars.join('&')}"`,
-				`width="${flashWidth}"`,
-				`height="${flashHeight}"`
+				`flashvars="${flashVars.join('&')}"`
 			];
 
-			if (!isVideo) {
-				settings.push('style="clip: rect(0 0 0 0); position: absolute;"');
+			// set width&height attributes for video only
+			if (isVideo) {
+				settings.push(`width="${flashWidth}"`);
+				settings.push(`height="${flashHeight}"`);
+			}
+			else {
+				settings.push('style="position: fixed; left: -9999em; top: -9999em;"');
 			}
 
 			flash.flashWrapper.innerHTML = `<embed ${settings.join(' ')}>`;
@@ -370,11 +387,13 @@ const FlashMediaElementRenderer = {
 		flash.flashNode = flash.flashWrapper.lastChild;
 
 		flash.hide = () => {
+			isActive = false;
 			if (isVideo) {
 				flash.flashNode.style.display = 'none';
 			}
 		};
 		flash.show = () => {
+			isActive = true;
 			if (isVideo) {
 				flash.flashNode.style.display = '';
 			}

@@ -3,7 +3,7 @@
 /**
  * Twitch renderer
  *
- * Uses <iframe> approach and uses Twitch API to manipulate it.
+ * Uses <iframe> approach and uses Twitch API to manipulate it. Collections are not supported by default.
  * @see https://github.com/justintv/Twitch-API/blob/master/embed-video.md
  */
 const TwitchApi = {
@@ -37,7 +37,7 @@ const TwitchApi = {
 	 */
 	_createPlayer: (settings) => {
 		const player = new Twitch.Player(settings.id, settings);
-		window['__ready__' + settings.id](player);
+		window[`__ready__${settings.id}`](player);
 	},
 
 	/**
@@ -88,10 +88,10 @@ const TwitchApi = {
 
 		for (let i = 0, total = parameters.length; i < total; i++) {
 			const paramParts = parameters[i].split('=');
-			if (~paramParts[0].indexOf('channel=')) {
+			if (~paramParts[0].indexOf('channel')) {
 				twitchId = paramParts[1];
 				break;
-			} else if (~paramParts[0].indexOf('video=')) {
+			} else if (~paramParts[0].indexOf('video')) {
 				twitchId = `v${paramParts[1]}`;
 				break;
 			}
@@ -116,7 +116,7 @@ const TwitchApi = {
 		const parts = url.split('?');
 		url = parts[0];
 		const id = url.substring(url.lastIndexOf('/') + 1);
-		return /^\d+$/i.test(id) !== null ? 'v' + id : id;
+		return /^\d+$/i.test(id) ? `v${id}` : id;
 	},
 
 	/**
@@ -126,7 +126,7 @@ const TwitchApi = {
 	 * @param {String} id
 	 * @returns {String}
 	 */
-	getTwitchType: (id) => /^v\d+/i.test(id) !== null ? 'video' : 'channel'
+	getTwitchType: (id) => /^v\d+/i.test(id) ? 'video' : 'channel'
 };
 
 const TwitchIframeRenderer = {
@@ -363,12 +363,12 @@ const TwitchIframeRenderer = {
 			let timer;
 
 			// Twitch events
-			twitchPlayer.addEventListener('ready', () => {
+			twitchPlayer.addEventListener(Twitch.Player.READY, () => {
 				paused = false;
 				ended = false;
 				sendEvents(['rendererready', 'loadedmetadata', 'loadeddata', 'canplay']);
 			});
-			twitchPlayer.addEventListener('play', () => {
+			twitchPlayer.addEventListener(Twitch.Player.PLAY, () => {
 				if (!hasStartedPlaying) {
 					hasStartedPlaying = true;
 				}
@@ -382,14 +382,14 @@ const TwitchIframeRenderer = {
 					sendEvents(['timeupdate']);
 				}, 250);
 			});
-			twitchPlayer.addEventListener('pause', () => {
+			twitchPlayer.addEventListener(Twitch.Player.PAUSE, () => {
 				paused = true;
 				ended = false;
 				if (!twitchPlayer.getEnded()) {
 					sendEvents(['pause']);
 				}
 			});
-			twitchPlayer.addEventListener('ended', () => {
+			twitchPlayer.addEventListener(Twitch.Player.ENDED, () => {
 				paused = true;
 				ended = true;
 				sendEvents(['ended']);

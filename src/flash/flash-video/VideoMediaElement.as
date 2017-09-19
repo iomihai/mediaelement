@@ -7,6 +7,7 @@
 	import flash.system.*;
 	import flash.external.*;
 	import flash.utils.Timer;
+	import flash.external.*;
 
 	public class VideoMediaElement extends Sprite {
 
@@ -17,11 +18,15 @@
 		private var _soundTransform:SoundTransform;
 		private var _oldVolume:Number = 1;
 		private var _autoplay:Boolean = false;
+		private var _preload:String = "";
+		private var _timerRate:Number;
 
 		private var _isPaused:Boolean = true;
 		private var _isLoaded:Boolean = false;
 		private var _isEnded:Boolean = false;
 		private var _isMuted:Boolean = false;
+
+		private var _isSeekInProgress:Boolean = false;
 
 		private var _isConnected:Boolean = false;
 		private var _playWhenConnected:Boolean = false;
@@ -33,11 +38,14 @@
 		private var _bytesTotal:Number = 0;
 		private var _bufferEmpty:Boolean = false;
 		private var _seekOffset:Number = 0;
+		private var _currentTime:Number = 0;
 
 		private var _videoWidth:Number = -1;
 		private var _videoHeight:Number = -1;
 
-		private var _src:String = '';
+		private var _timer:Timer;
+
+		private var _currentUrl:String = '';
 		private var _volume:Number = 1;
 		private var _duration:Number = 0;
 		private var _readyState:Number = 0;
@@ -76,6 +84,13 @@
 			_id = flashVars.uid;
 			_setUpSrc = flashVars.src;
 			_autoplay = (flashVars.autoplay == true);
+			_preload = flashVars.preload;
+			_streamer = (flashVars.flashstreamer != undefined) ? (String(flashVars.flashstreamer)) : "";
+			_timerRate = (flashVars.timerrate != undefined) ? (parseInt(flashVars.timerrate, 10)) : 250;
+
+			if (isNaN(_timerRate)) {
+				_timerRate = 250;
+			}
 
 			_pseudoStreamingEnabled = flashVars.pseudostreamstart != null;
 			_pseudoStreamingStartQueryParam = flashVars.pseudostreamstart != null ? flashVars.pseudostreamstart : 'start';
@@ -100,6 +115,8 @@
 			_video = new Video();
 			(_video as Video).smoothing = true;
 			_display.addChild(_video);
+			_timer = new Timer(_timerRate);
+			_timer.addEventListener("timer", timerHandler);
 			_display.addEventListener(MouseEvent.MOUSE_OVER, stageMouseOverHandler);
 
 			_display.x = _video.x = 0;
@@ -147,22 +164,18 @@
 		//
 		private function fire_load():void {
 
-			if (_src) {
+			if (_currentUrl) {
 
 				// disconnect existing stream and connection
 				if (_isConnected && _stream) {
 					_connection.removeEventListener(NetStatusEvent.NET_STATUS, netStatusHandler);
 					_connection.removeEventListener(SecurityErrorEvent.SECURITY_ERROR, securityErrorHandler);
-
 					try {
 						_stream.pause();
 						_stream.close();
 						_connection.close();
 					}
-					catch (error:Error) {
-
-					}
-
+					catch (error:Error) {}
 					_connection = new NetConnection();
 					_connection.proxyType = "best";
 				}
@@ -183,48 +196,36 @@
 					_connection.connect(null);
 				}
 
+				sendEvent('loadstart');
+
 				if (_autoplay) {
 					fire_play();
+					return;
 				}
 			}
 		}
 		private function fire_play():void {
-
 			if (!_hasStartedPlaying && !_isConnected) {
 				_playWhenConnected = true;
 				fire_load();
-				return;
 			}
 
 			if (_hasStartedPlaying) {
-				if (_isEnded) {
-					_stream.seek(0);
-					if (_isRTMP) {
-						_stream.play(_rtmpInfo.stream);
-
-					} else {
-						_stream.play(getUrlPosition(0));
-					}
-				}
-
-
 				if (_isPaused) {
 					_stream.resume();
+					_timer.start();
 					_isPaused = false;
+					sendEvent('play');
+					sendEvent('playing');
 				}
 			} else {
-
 				if (_isRTMP) {
 					_stream.play(_rtmpInfo.stream);
-
 				} else {
 					_stream.play(getUrlPosition(0));
 				}
-
-				_isPaused = false;
-				_hasStartedPlaying = true;
+				_timer.start();
 			}
-			sendEvent("play");
 		}
 		private function fire_pause():void {
 			if (_stream == null) {
@@ -232,8 +233,9 @@
 			}
 
 			_stream.pause();
-			_isPaused = true;
-			sendEvent("pause");
+			if (_bytesLoaded == _bytesTotal) {
+				_timer.stop();
+			}
 		}
 		private function fire_stop():void {
 			if (_stream == null) {
@@ -241,7 +243,7 @@
 			}
 
 			_stream.close();
-			_isPaused = false;
+			_timer.stop();
 			sendEvent("stop");
 		}
 		private function fire_setSize(width: Number=-1, height: Number=-1): void {
@@ -293,71 +295,80 @@
 		// Setters
 		//
 		private function set_src(value:String = ''):void {
-
 			if (_isConnected && _stream) {
 				_stream.pause();
 			}
 
-			_src = value;
+			_currentUrl = value;
 			_isConnected = false;
 			_hasStartedPlaying = false;
 			_isLoaded = false;
 
-			_isRTMP = !!_src.match(/^rtmp(s|t|e|te)?\:\/\//) || _streamer != "";
+			_isRTMP = !!_currentUrl.match(/^rtmp(s|t|e|te)?\:\/\//) || _streamer != "";
 
 			if (_isRTMP) {
-				_rtmpInfo = parseRTMP(_src);
+				_rtmpInfo = parseRTMP(_currentUrl);
 			}
 		}
-		private function set_muted(value:*):void {
+		private function set_muted(value:Boolean):void {
 			if (_isConnected && _stream) {
+				if (_isMuted == value) {
+					return;
+				}
 
 				if (value == true) {
-					_oldVolume = _volume;
-					_isMuted = true;
+					_oldVolume = (_stream == null) ? _oldVolume : _stream.soundTransform.volume;
 					set_volume(0);
-
 				} else {
-
-					_isMuted = false;
-
-					if (_oldVolume > 0) {
-						set_volume(_oldVolume);
-					} else {
-						set_volume(1);
-					}
+					set_volume(_oldVolume);
 				}
+				_isMuted = value;
 			}
 		}
 		private function set_volume(value:Number = NaN):void {
 			if (!isNaN(value)) {
-
 				if (_stream != null) {
 					_soundTransform = new SoundTransform(value);
 					_stream.soundTransform = _soundTransform;
 				}
 
 				_volume = value;
+				_isMuted = (_volume == 0);
 				sendEvent("volumechange");
 			}
 		}
-		private function set_currentTime(value:Number = NaN):void {
-
+		private function set_currentTime(pos:Number = NaN):void {
 			if (_stream == null) {
 				return;
 			}
 
-			sendEvent("seeking");
-			_stream.seek(value);
-			sendEvent("timeupdate");
-			sendEvent("seeked");
+			_timer.stop();
+
+			// Calculate the position of the buffered video
+			var bufferPosition:Number = _bytesLoaded / _bytesTotal * _duration;
+			sendEvent('seeking');
+			if (_pseudoStreamingEnabled) {
+				// Normal seek if it is in buffer and this is the first seek
+				if (pos < bufferPosition && _seekOffset == 0) {
+					_stream.seek(pos);
+				}
+				else {
+					// Uses server-side pseudo-streaming to seek
+					_stream.play(getUrlPosition(pos));
+					_seekOffset = pos;
+				}
+			} else {
+				_stream.seek(pos);
+			}
+			_currentTime = pos;
+			sendEvent('seeked');
 		}
 
 		//
 		// Getters
 		//
 		private function get_src():String {
-			return _src;
+			return _currentUrl;
 		}
 		private function get_paused():Boolean {
 			return _isPaused;
@@ -367,7 +378,7 @@
 
 		}
 		private function get_volume():Number {
-			return _volume;
+			return _isMuted ? 0 : _volume;
 		}
 		private function get_currentTime():Number {
 			var currentTime:Number = 0;
@@ -409,7 +420,9 @@
 
 			// store main info
 			// Only set the duration when we first load the video
-			_duration = info.duration;
+			if (_duration == 0) {
+				_duration = info.duration;
+			}
 			_framerate = info.framerate;
 			_videoWidth = info.width;
 			_videoHeight = info.height;
@@ -424,72 +437,92 @@
 			}
 
 			sendEvent("loadedmetadata");
-
 			_readyState = 4;
 
 			if (_isPreloading) {
-				_stream.pause();
-				_isPaused = true;
+				_isPaused = false;
 				_isPreloading = false;
-
-				sendEvent("progress");
-				sendEvent("timeupdate");
+				sendEvent("play");
 			}
 
 		}
+		private function timerHandler(e:TimerEvent):void {
+			_bytesLoaded = _stream.bytesLoaded;
+			_bytesTotal = _stream.bytesTotal;
+
+			if (!_isPaused) {
+				sendEvent('timeupdate');
+			}
+
+			if (_bytesLoaded < _bytesTotal) {
+				sendEvent('progress');
+			}
+		}
+
 		private function netStatusHandler(event:NetStatusEvent):void {
-
 			switch (event.info.code) {
-
+				case "NetStream.Buffer.Flush":
 				case "NetStream.Buffer.Empty":
 					_bufferEmpty = true;
-					if (_isEnded) {
-						_stream.seek(0);
+					var currTime:Number = uint(get_currentTime());
+					if (currTime >= uint(get_duration()) || (currTime == 0 && _hasStartedPlaying)) {
+						_isEnded = true;
+						fire_pause();
+						_hasStartedPlaying = false;
 						sendEvent("ended");
 					}
 					break;
-
 				case "NetStream.Buffer.Full":
 					_bytesLoaded = _stream.bytesLoaded;
 					_bytesTotal = _stream.bytesTotal;
 					_bufferEmpty = false;
-					sendEvent("timeupdate");
 					sendEvent("progress");
 					break;
-
 				case "NetConnection.Connect.Success":
 					connectStream();
-					sendEvent("canplay");
 					break;
-
 				case "NetStream.Play.StreamNotFound":
 					sendEvent('error', 'Unable to locate video');
 					break;
-
-				// STREAM
+				case "NetStream.SeekStart.Notify":
+					_isSeekInProgress = true;
+					break;
+				case "NetStream.Seek.Complete":
+					_isSeekInProgress = false;
+					break;
 				case "NetStream.Play.Start":
-					_isPaused = false;
-					break;
-
-				// case "NetStream.Seek.Notify":
-				// 	sendEvent("seeked");
-				// 	break;
-
-				case "NetStream.Pause.Notify":
-					_isPaused = true;
-					break;
-
-				case "NetStream.Play.Stop":
-					if (_hasStartedPlaying) {
-						_isEnded = true;
+					if(!_isSeekInProgress) {
 						_isPaused = false;
-						if (_bufferEmpty) {
-							_stream.seek(0);
-							sendEvent("ended");
+						_hasStartedPlaying = true;
+						if (_hasStartedPlaying) {
+							sendEvent("play");
+							_timer.start();
+						} else {
+							fire_play();
 						}
 					}
 					break;
-
+				case "NetConnection.Connect.Closed":
+					_isConnected = false;
+					break;
+				case "NetStream.Pause.Notify":
+					if (_hasStartedPlaying) {
+						_isPaused = true;
+						sendEvent("pause");
+						_timer.stop();
+					} else {
+						fire_load();
+					}
+					break;
+				case "NetStream.Play.Stop":
+					if (_hasStartedPlaying && uint(get_currentTime()) >= uint(get_duration())) {
+						_isEnded = true;
+						fire_pause();
+						_isPaused = true;
+						_hasStartedPlaying = false;
+						sendEvent("ended");
+					}
+					break;
 			}
 		}
 		private function securityErrorHandler(event:SecurityErrorEvent):void {
@@ -512,9 +545,9 @@
 			_bytesLoaded = _stream.bytesLoaded;
 			_bytesTotal = _stream.bytesTotal;
 
-			//if (_hasStartedPlaying) {
+			if (_hasStartedPlaying) {
 				sendEvent("timeupdate");
-			//}
+			}
 
 			if (_bytesLoaded < _bytesTotal) {
 				sendEvent("progress");
@@ -545,8 +578,8 @@
 
 			// set the buffer to ensure nice playback
 			_stream.inBufferSeek = true;
-			// _stream.bufferTime = 1;
-			// _stream.bufferTimeMax = 3;
+			_stream.bufferTime = 1;
+			_stream.bufferTimeMax = 3;
 
 			_stream.addEventListener(NetStatusEvent.NET_STATUS, netStatusHandler); // same event as connection
 			_stream.addEventListener(AsyncErrorEvent.ASYNC_ERROR, asyncErrorHandler);
@@ -556,6 +589,16 @@
 			_stream.client = customClient;
 
 			_video.attachNetStream(_stream);
+
+			// start downloading without playing )based on preload and play() hasn't been called)
+			// I wish flash had a load() command to make this less awkward
+			if (_preload != "none" && !_playWhenConnected) {
+				_isPaused = true;
+				_isPreloading = true;
+				stream.bufferTime = 20;
+				_stream.play(getCurrentUrl(0), 0, 0);
+				_stream.pause();
+			}
 
 			_isConnected = true;
 
@@ -582,7 +625,7 @@
 			return rtmpInfo;
 		}
 		private function getUrlPosition(pos:Number):String {
-			var url:String = _src;
+			var url:String = _currentUrl;
 
 			if (_pseudoStreamingEnabled) {
 				url += (url.indexOf('?') > -1) ? '&' : '?';

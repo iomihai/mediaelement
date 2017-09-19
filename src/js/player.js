@@ -14,7 +14,8 @@ import {
 	IS_ANDROID,
 	IS_IOS,
 	IS_STOCK_ANDROID,
-	HAS_TRUE_NATIVE_FULLSCREEN
+	HAS_TRUE_NATIVE_FULLSCREEN,
+	SUPPORT_PASSIVE_EVENT
 } from './utils/constants';
 import {splitEvents, isNodeAfter, createEvent, isString} from './utils/general';
 import {calculateTimeFormat} from './utils/time';
@@ -137,117 +138,6 @@ export const config = {
 					} else {
 						player.pause();
 					}
-				}
-			}
-		},
-		{
-			keys: [38], // UP
-			action: (player) => {
-
-				if (player.container.querySelector(`.${config.classPrefix}volume-button>button`).matches(':focus') ||
-					player.container.querySelector(`.${config.classPrefix}volume-slider`).matches(':focus')) {
-					player.container.querySelector(`.${config.classPrefix}volume-slider`).style.display = '';
-				}
-				if (player.isVideo) {
-					player.showControls();
-					player.startControlsTimer();
-				}
-
-				const newVolume = Math.min(player.volume + 0.1, 1);
-				player.setVolume(newVolume);
-				if (newVolume > 0) {
-					player.setMuted(false);
-				}
-
-			}
-		},
-		{
-			keys: [40], // DOWN
-			action: (player) => {
-
-				if (player.container.querySelector(`.${config.classPrefix}volume-button>button`).matches(':focus') ||
-					player.container.querySelector(`.${config.classPrefix}volume-slider`).matches(':focus')) {
-					player.container.querySelector(`.${config.classPrefix}volume-slider`).style.display = '';
-				}
-
-				if (player.isVideo) {
-					player.showControls();
-					player.startControlsTimer();
-				}
-
-				const newVolume = Math.max(player.volume - 0.1, 0);
-				player.setVolume(newVolume);
-
-				if (newVolume <= 0.1) {
-					player.setMuted(true);
-				}
-
-			}
-		},
-		{
-			keys: [
-				37, // LEFT
-				227 // Google TV rewind
-			],
-			action: (player) => {
-				if (!isNaN(player.duration) && player.duration > 0) {
-					if (player.isVideo) {
-						player.showControls();
-						player.startControlsTimer();
-					}
-
-					// 5%
-					const newTime = Math.max(player.currentTime - player.options.defaultSeekBackwardInterval(player), 0);
-					player.setCurrentTime(newTime);
-				}
-			}
-		},
-		{
-			keys: [
-				39, // RIGHT
-				228 // Google TV forward
-			],
-			action: (player) => {
-
-				if (!isNaN(player.duration) && player.duration > 0) {
-					if (player.isVideo) {
-						player.showControls();
-						player.startControlsTimer();
-					}
-
-					// 5%
-					const newTime = Math.min(player.currentTime + player.options.defaultSeekForwardInterval(player), player.duration);
-					player.setCurrentTime(newTime);
-				}
-			}
-		},
-		{
-			keys: [70], // F
-			action: (player, media, key, event) => {
-				if (!event.ctrlKey) {
-					if (typeof player.enterFullScreen !== 'undefined') {
-						if (player.isFullScreen) {
-							player.exitFullScreen();
-						} else {
-							player.enterFullScreen();
-						}
-					}
-				}
-			}
-		},
-		{
-			keys: [77], // M
-			action: (player) => {
-
-				player.container.querySelector(`.${config.classPrefix}volume-slider`).style.display = '';
-				if (player.isVideo) {
-					player.showControls();
-					player.startControlsTimer();
-				}
-				if (player.media.muted) {
-					player.setMuted(false);
-				} else {
-					player.setMuted(true);
 				}
 			}
 		}
@@ -766,14 +656,15 @@ class MediaElementPlayer {
 				return;
 			}
 
-			// grab for use by features
-			t.findTracks();
-
 			// cache container to store control elements' original position
 			t.featurePosition = {};
 
 			// Enable default actions
 			t._setDefaultPlayer();
+
+			t.buildposter(t, t.controls, t.layers, t.media);
+			t.buildkeyboard(t, t.controls, t.layers, t.media);
+			t.buildoverlays(t, t.controls, t.layers, t.media);
 
 			if (t.options.useDefaultControls) {
 				const defaultControls = ['playpause', 'current', 'progress', 'duration', 'tracks', 'volume', 'fullscreen'];
@@ -792,10 +683,6 @@ class MediaElementPlayer {
 					}
 				}
 			}
-
-			t.buildposter(t, t.controls, t.layers, t.media);
-			t.buildkeyboard(t, t.controls, t.layers, t.media);
-			t.buildoverlays(t, t.controls, t.layers, t.media);
 
 			const event = createEvent('controlsready', t.container);
 			t.container.dispatchEvent(event);
@@ -850,7 +737,7 @@ class MediaElementPlayer {
 								t.showControls(false);
 							}
 						}
-					});
+					}, SUPPORT_PASSIVE_EVENT ? { passive: true } : false);
 				} else {
 					// show/hide controls
 					t.container.addEventListener('mouseenter', () => {
@@ -1641,8 +1528,10 @@ class MediaElementPlayer {
 		let posterUrl = media.originalNode.getAttribute('poster');
 
 		// priority goes to option (this is useful if you need to support iOS 3.x (iOS completely fails with poster)
-		if (player.options.poster !== '' && posterUrl && IS_IOS) {
-			media.originalNode.removeAttribute('poster');
+		if (player.options.poster !== '') {
+			if (posterUrl && IS_IOS) {
+				media.originalNode.removeAttribute('poster');
+			}
 			posterUrl = player.options.poster;
 		}
 
@@ -1695,8 +1584,7 @@ class MediaElementPlayer {
 			loading = document.createElement('div'),
 			error = document.createElement('div'),
 			// this needs to come last so it's on top
-			bigPlay = document.createElement('div'),
-			buffer = controls.querySelector(`.${t.options.classPrefix}time-buffering`)
+			bigPlay = document.createElement('div')
 		;
 
 		loading.style.display = 'none'; // start out hidden
@@ -1760,35 +1648,23 @@ class MediaElementPlayer {
 		media.addEventListener('play', () => {
 			bigPlay.style.display = 'none';
 			loading.style.display = 'none';
-			if (buffer !== null) {
-				buffer.style.display = 'none';
-			}
 			error.style.display = 'none';
 			hasError = false;
 		});
 		media.addEventListener('playing', () => {
 			bigPlay.style.display = 'none';
 			loading.style.display = 'none';
-			if (buffer !== null) {
-				buffer.style.display = 'none';
-			}
 			error.style.display = 'none';
 			hasError = false;
 		});
 		media.addEventListener('seeking', () => {
 			bigPlay.style.display = 'none';
 			loading.style.display = '';
-			if (buffer !== null) {
-				buffer.style.display = '';
-			}
 			hasError = false;
 		});
 		media.addEventListener('seeked', () => {
 			bigPlay.style.display = t.paused && !IS_STOCK_ANDROID ? '' : 'none';
 			loading.style.display = 'none';
-			if (buffer !== null) {
-				buffer.style.display = 'none';
-			}
 			hasError = false;
 		});
 		media.addEventListener('pause', () => {
@@ -1796,26 +1672,16 @@ class MediaElementPlayer {
 			if (!IS_STOCK_ANDROID && !hasError) {
 				bigPlay.style.display = '';
 			}
-			if (buffer !== null) {
-				buffer.style.display = 'none';
-			}
 			hasError = false;
 		});
 		media.addEventListener('waiting', () => {
 			loading.style.display = '';
-			if (buffer !== null) {
-				buffer.style.display = '';
-			}
 			hasError = false;
 		});
 
 		// show/hide loading
 		media.addEventListener('loadeddata', () => {
 			loading.style.display = '';
-			if (buffer !== null) {
-				buffer.style.display = '';
-			}
-
 			// Firing the 'canplay' event after a timeout which isn't getting fired on some Android 4.1 devices
 			// (https://github.com/johndyer/mediaelement/issues/1305)
 			if (IS_ANDROID) {
@@ -1831,9 +1697,6 @@ class MediaElementPlayer {
 		});
 		media.addEventListener('canplay', () => {
 			loading.style.display = 'none';
-			if (buffer !== null) {
-				buffer.style.display = 'none';
-			}
 			// Clear timeout inside 'loadeddata' to prevent 'canplay' from firing twice
 			clearTimeout(media.canplayTimeout);
 			hasError = false;
@@ -1844,9 +1707,6 @@ class MediaElementPlayer {
 			t._handleError(e, t.media, t.node);
 			loading.style.display = 'none';
 			bigPlay.style.display = 'none';
-			if (buffer !== null) {
-				buffer.style.display = 'none';
-			}
 			hasError = true;
 		});
 
@@ -2142,5 +2002,6 @@ class MediaElementPlayer {
 }
 
 window.MediaElementPlayer = MediaElementPlayer;
+mejs.MediaElementPlayer = MediaElementPlayer;
 
 export default MediaElementPlayer;

@@ -4,7 +4,7 @@ import document from 'global/document';
 import {config} from '../player';
 import MediaElementPlayer from '../player';
 import i18n from '../core/i18n';
-import {IS_FIREFOX, IS_IOS, IS_ANDROID} from '../utils/constants';
+import {IS_FIREFOX, IS_IOS, IS_ANDROID, SUPPORT_PASSIVE_EVENT} from '../utils/constants';
 import {secondsToTimeCode} from '../utils/time';
 import {offset, addClass, removeClass, hasClass} from '../utils/dom';
 
@@ -74,7 +74,47 @@ Object.assign(MediaElementPlayer.prototype, {
 
 		t.addControlElement(rail, 'progress');
 
-		controls.querySelector(`.${t.options.classPrefix}time-buffering`).style.display = 'none';
+		t.options.keyActions.push({
+			keys: [
+				37, // LEFT
+				227 // Google TV rewind
+			],
+			action: (player) => {
+				if (!isNaN(player.duration) && player.duration > 0) {
+					if (player.isVideo) {
+						player.showControls();
+						player.startControlsTimer();
+					}
+
+					player.container.querySelector(`.${config.classPrefix}time-total`).focus();
+
+					// 5%
+					const newTime = Math.max(player.currentTime - player.options.defaultSeekBackwardInterval(player), 0);
+					player.setCurrentTime(newTime);
+				}
+			}
+		},
+		{
+			keys: [
+				39, // RIGHT
+				228 // Google TV forward
+			],
+			action: (player) => {
+
+				if (!isNaN(player.duration) && player.duration > 0) {
+					if (player.isVideo) {
+						player.showControls();
+						player.startControlsTimer();
+					}
+
+					player.container.querySelector(`.${config.classPrefix}time-total`).focus();
+
+					// 5%
+					const newTime = Math.min(player.currentTime + player.options.defaultSeekForwardInterval(player), player.duration);
+					player.setCurrentTime(newTime);
+				}
+			}
+		});
 
 		t.rail = controls.querySelector(`.${t.options.classPrefix}time-rail`);
 		t.total = controls.querySelector(`.${t.options.classPrefix}time-total`);
@@ -85,6 +125,7 @@ Object.assign(MediaElementPlayer.prototype, {
 		t.timefloatcurrent = controls.querySelector(`.${t.options.classPrefix}time-float-current`);
 		t.slider = controls.querySelector(`.${t.options.classPrefix}time-slider`);
 		t.hovered = controls.querySelector(`.${t.options.classPrefix}time-hovered`);
+		t.buffer = controls.querySelector(`.${t.options.classPrefix}time-buffering`);
 		t.newTime = 0;
 		t.forcedHandlePause = false;
 		t.setTransformStyle = (element, value) => {
@@ -94,6 +135,8 @@ Object.assign(MediaElementPlayer.prototype, {
 			element.style.msTransform = value;
 			element.style.OTransform = value;
 		};
+
+		t.buffer.style.display = 'none';
 
 		/**
 		 *
@@ -164,7 +207,7 @@ Object.assign(MediaElementPlayer.prototype, {
 					}
 
 					// position floating time box
-					if (!IS_IOS && !IS_ANDROID && t.timefloat) {
+					if (!IS_IOS && !IS_ANDROID) {
 						if (pos < 0){
 							pos = 0;
 						}
@@ -187,22 +230,29 @@ Object.assign(MediaElementPlayer.prototype, {
 						}
 
 						// Add correct position of tooltip if rail is 100%
-						const
-							half = t.timefloat.offsetWidth / 2,
-							offsetContainer = mejs.Utils.offset(t.container)
-						;
+						if (t.timefloat) {
+							const
+								half = t.timefloat.offsetWidth / 2,
+								offsetContainer = mejs.Utils.offset(t.container),
+								tooltipStyles = getComputedStyle(t.timefloat)
+							;
 
-						if ((x - offsetContainer.left) < t.timefloat.offsetWidth) {
-							leftPos = half;
-						} else if ((x - offsetContainer.left) >= t.container.offsetWidth - half) {
-							leftPos = t.total.offsetWidth - half;
-						} else {
-							leftPos = pos;
+							if ((x - offsetContainer.left) < t.timefloat.offsetWidth) {
+								leftPos = half;
+							} else if ((x - offsetContainer.left) >= t.container.offsetWidth - half) {
+								leftPos = t.total.offsetWidth - half;
+							} else {
+								leftPos = pos;
+							}
+
+							if (hasClass(t.container, `${t.options.classPrefix}long-video`)) {
+								leftPos += parseFloat(tooltipStyles.marginLeft)/2 + t.timefloat.offsetWidth/2;
+							}
+
+							t.timefloat.style.left = `${leftPos}px`;
+							t.timefloatcurrent.innerHTML = secondsToTimeCode(t.newTime, player.options.alwaysShowHours, player.options.showTimecodeFrameCount, player.options.framesPerSecond, player.options.secondsDecimalLength);
+							t.timefloat.style.display = 'block';
 						}
-
-						t.timefloat.style.left = `${leftPos}px`;
-						t.timefloatcurrent.innerHTML = secondsToTimeCode(t.newTime, player.options.alwaysShowHours, player.options.showTimecodeFrameCount, player.options.framesPerSecond, player.options.secondsDecimalLength);
-						t.timefloat.style.display = 'block';
 					}
 				} else if (!IS_IOS && !IS_ANDROID && t.timefloat) {
 					leftPos = t.timefloat.offsetWidth + width >= t.container.offsetWidth ? t.timefloat.offsetWidth / 2 : 0;
@@ -348,11 +398,13 @@ Object.assign(MediaElementPlayer.prototype, {
 					player.pause();
 				}
 
+
 				if (seekTime < t.getDuration() && !startedPaused) {
 					setTimeout(restartPlayer, 1100);
 				}
 
 				t.setCurrentTime(seekTime);
+				player.showControls();
 
 				e.preventDefault();
 				e.stopPropagation();
@@ -396,7 +448,7 @@ Object.assign(MediaElementPlayer.prototype, {
 						});
 					}
 				}
-			});
+			}, (SUPPORT_PASSIVE_EVENT && events[i] === 'touchstart') ? { passive: true } : false);
 		}
 		t.slider.addEventListener('mouseenter', (e) => {
 			if (e.target === t.slider && t.getDuration() !== Infinity) {
@@ -453,6 +505,33 @@ Object.assign(MediaElementPlayer.prototype, {
 
 		media.addEventListener('progress', t.broadcastCallback);
 		media.addEventListener('timeupdate', t.broadcastCallback);
+		media.addEventListener('play', () => {
+			t.buffer.style.display = 'none';
+		});
+		media.addEventListener('playing', () => {
+			t.buffer.style.display = 'none';
+		});
+		media.addEventListener('seeking', () => {
+			t.buffer.style.display = '';
+		});
+		media.addEventListener('seeked', () => {
+			t.buffer.style.display = 'none';
+		});
+		media.addEventListener('pause', () => {
+			t.buffer.style.display = 'none';
+		});
+		media.addEventListener('waiting', () => {
+			t.buffer.style.display = '';
+		});
+		media.addEventListener('loadeddata', () => {
+			t.buffer.style.display = '';
+		});
+		media.addEventListener('canplay', () => {
+			t.buffer.style.display = 'none';
+		});
+		media.addEventListener('error', () => {
+			t.buffer.style.display = 'none';
+		});
 
 		t.container.addEventListener('controlsresize', (e) => {
 			if (t.getDuration() !== Infinity) {

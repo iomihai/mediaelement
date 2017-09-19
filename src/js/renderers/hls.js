@@ -35,7 +35,7 @@ const NativeHls = {
 			});
 		} else {
 			settings.options.path = typeof settings.options.path === 'string' ?
-				settings.options.path : 'https://cdnjs.cloudflare.com/ajax/libs/hls.js/0.7.11/hls.min.js';
+				settings.options.path : 'https://cdnjs.cloudflare.com/ajax/libs/hls.js/0.8.2/hls.min.js';
 
 			NativeHls.promise = NativeHls.promise || loadScript(settings.options.path);
 			NativeHls.promise.then(() => {
@@ -54,7 +54,7 @@ const NativeHls = {
 	 */
 	_createPlayer: (settings) => {
 		const player = new Hls(settings.options);
-		window['__ready__' + settings.id](player);
+		window[`__ready__${settings.id}`](player);
 		return player;
 	}
 };
@@ -65,7 +65,7 @@ const HlsNativeRenderer = {
 		prefix: 'native_hls',
 		hls: {
 			// Special config: used to set the local path/URL of hls.js library
-			path: 'https://cdnjs.cloudflare.com/ajax/libs/hls.js/0.7.11/hls.min.js',
+			path: 'https://cdnjs.cloudflare.com/ajax/libs/hls.js/0.8.2/hls.min.js',
 			// To modify more elements from hls.js,
 			// see https://github.com/dailymotion/hls.js/blob/master/API.md#user-content-fine-tuning
 			autoStartLoad: false,
@@ -101,7 +101,9 @@ const HlsNativeRenderer = {
 
 		let
 			hlsPlayer = null,
-			node = null
+			node = null,
+			index = 0,
+			total = mediaFiles.length
 		;
 
 		node = originalNode.cloneNode(true);
@@ -184,7 +186,8 @@ const HlsNativeRenderer = {
 			let recoverDecodingErrorDate, recoverSwapAudioCodecDate;
 			const assignHlsEvents = function (name, data) {
 				if (name === 'hlsError') {
-					console.warn(name, data);
+					console.warn(data);
+					data = data[1];
 
 					// borrowed from http://dailymotion.github.io/hls.js/demo/
 					if (data.fatal) {
@@ -206,9 +209,17 @@ const HlsNativeRenderer = {
 								}
 								break;
 							case 'networkError':
-								const message = 'Network error';
-								mediaElement.generateError(message, node.src);
-								console.error(message);
+								if (data.details === 'manifestLoadError') {
+									if (index < total) {
+										node.setSrc(mediaFiles[index++].src);
+										node.load();
+										node.play();
+									}
+								} else {
+									const message = 'Network error';
+									mediaElement.generateError(message, mediaFiles);
+									console.error(message);
+								}
 								break;
 							default:
 								hlsPlayer.destroy();
@@ -229,10 +240,10 @@ const HlsNativeRenderer = {
 			}
 		};
 
-		if (mediaFiles && mediaFiles.length > 0) {
-			for (let i = 0, total = mediaFiles.length; i < total; i++) {
-				if (renderer.renderers[options.prefix].canPlayType(mediaFiles[i].type)) {
-					node.setAttribute('src', mediaFiles[i].src);
+		if (total > 0) {
+			for (; index < total; index++) {
+				if (renderer.renderers[options.prefix].canPlayType(mediaFiles[index].type)) {
+					node.setAttribute('src', mediaFiles[index].src);
 					break;
 				}
 			}
